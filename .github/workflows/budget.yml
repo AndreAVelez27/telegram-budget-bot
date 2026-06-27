@@ -1,0 +1,60 @@
+name: Budget Bot
+
+on:
+  schedule:
+    # Inicio de cada semana de presupuesto (sábados 8am Colombia = 13:00 UTC)
+    - cron: "0 13 * * 6"
+    # Resumen del ciclo completo cada día 27 del mes (8am Colombia = 13:00 UTC)
+    - cron: "0 13 27 * *"
+  workflow_dispatch:
+    inputs:
+      modo:
+        description: "Modo de ejecución"
+        required: false
+        default: "semanal"
+        type: choice
+        options:
+          - semanal
+          - resumen
+
+jobs:
+  enviar-presupuesto:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Enviar resumen del ciclo (día 27)
+        if: github.event_name == 'schedule' && startsWith(github.event.schedule, '0 13 27')
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python3 budget_bot.py --resumen
+
+      - name: Enviar presupuesto semanal (sábados)
+        if: github.event_name == 'schedule' && startsWith(github.event.schedule, '0 13 * *')
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python3 budget_bot.py
+
+      - name: Ejecución manual
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ "${{ github.event.inputs.modo }}" = "resumen" ]; then
+            python3 budget_bot.py --resumen
+          else
+            python3 budget_bot.py
+          fi

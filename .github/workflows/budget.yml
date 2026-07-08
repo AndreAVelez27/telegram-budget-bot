@@ -4,8 +4,8 @@ on:
   schedule:
     # Inicio de cada semana de presupuesto (sábados 8am Colombia = 13:00 UTC)
     - cron: "0 13 * * 6"
-    # Resumen del ciclo completo cada día 27 del mes (8am Colombia = 13:00 UTC)
-    - cron: "0 13 27 * *"
+    # Días 24-27: el script decide internamente cuál es el día real de nómina
+    - cron: "0 13 24-27 * *"
   workflow_dispatch:
     inputs:
       modo:
@@ -16,6 +16,7 @@ on:
         options:
           - semanal
           - resumen
+          - nomina
 
 jobs:
   enviar-presupuesto:
@@ -33,12 +34,12 @@ jobs:
       - name: Instalar dependencias
         run: pip install -r requirements.txt
 
-      - name: Enviar resumen del ciclo (día 27)
-        if: github.event_name == 'schedule' && startsWith(github.event.schedule, '0 13 27')
+      - name: Flujo de nómina (días 24-27)
+        if: github.event_name == 'schedule' && startsWith(github.event.schedule, '0 13 24-27')
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python3 budget_bot.py --resumen
+        run: python3 budget_bot.py --nomina
 
       - name: Enviar presupuesto semanal (sábados)
         if: github.event_name == 'schedule' && startsWith(github.event.schedule, '0 13 * *')
@@ -55,6 +56,8 @@ jobs:
         run: |
           if [ "${{ github.event.inputs.modo }}" = "resumen" ]; then
             python3 budget_bot.py --resumen
+          elif [ "${{ github.event.inputs.modo }}" = "nomina" ]; then
+            python3 budget_bot.py --nomina
           else
             python3 budget_bot.py
           fi

@@ -1,8 +1,9 @@
 import asyncio
-from datetime import date
+from datetime import date, timedelta
 import os
 import sys
 import httpx
+import holidays
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -76,6 +77,14 @@ SEMANAS = [
     },
 ]
 
+def dia_nomina(mes: int, año: int) -> date:
+    """Último día hábil colombiano en o antes del 27 del mes dado."""
+    festivos = holidays.Colombia(years=año)
+    candidato = date(año, mes, 27)
+    while candidato.weekday() >= 5 or candidato in festivos:
+        candidato -= timedelta(days=1)
+    return candidato
+
 def semana_actual() -> int:
     """Devuelve el índice (0-4) de la semana actual según la fecha."""
     hoy = date.today()
@@ -141,8 +150,16 @@ def construir_resumen_ciclo() -> str:
     return "\n".join(lineas)
 
 async def main():
-    resumen = "--resumen" in sys.argv
-    if resumen:
+    hoy = date.today()
+
+    if "--nomina" in sys.argv:
+        nomina = dia_nomina(hoy.month, hoy.year)
+        if hoy != nomina:
+            print(f"⏭️  Hoy ({hoy}) no es día de nómina ({nomina}). Sin acción.")
+            return
+        mensaje = "💰 ¡Hoy es día de nómina! ¿Cuánto te quedó de remanente este mes?"
+        label = "Día de nómina"
+    elif "--resumen" in sys.argv:
         mensaje = construir_resumen_ciclo()
         label = "Resumen del ciclo"
     else:

@@ -8,6 +8,7 @@ import sys
 import httpx
 import holidays
 from dotenv import load_dotenv
+from sheets import registrar_gasto
 
 load_dotenv()
 
@@ -359,6 +360,52 @@ async def flujo_nomina(hoy: date) -> None:
 
     print("⏰ Timeout: el usuario no respondió en 10 minutos.")
 
+
+# ── Flujo de gastos ──────────────────────────────────────────────────────────────────
+
+def es_reporte_gasto(texto:str) -> bool:
+    """ Detecta si el mensaje es un reporte de gasto y devuelve True/False"""
+    return bool(re.search(r"hoy gasté|hoy pedí|hoy compré|hoy gaste|hoy pedi|hoy compre", texto, re.IGNORECASE))
+
+
+async def esperar_respuesta(estado: dict, timeout: int = 300) -> Optional[str]:
+    deadline = asyncio.get_event_loop().time() + timeout
+    offset = estado.get("ultimo_update_id", 0) + 1
+
+    async with httpx.AsyncClient() as client:
+        while asyncio.get_event_loop().time() < deadline:
+            updates = await obtener_updates(client, offset)
+
+            for update in updates:
+                offset = update["update_id"] + 1
+                estado["ultimo_update_id"] = update["update_id"]
+                guardar_estado(estado)
+
+                msg = update.get("message", {})
+                if str(msg.get("chat", {}).get("id")) != str(CHAT_ID):
+                    continue
+
+                return msg.get("text","")
+
+    return None
+
+async def flujo_gastos(estado: dict) -> None:
+    await enviar_mensaje("¿Cuánto gastaste?")
+    monto_texto = await esperar_respuesta(estado)
+    monto = parsear_monto(monto_texto)
+
+    await enviar_mensaje("¿En qué categoría?\n_domicilios / salidas / transporte / capricho_")
+    categoria = await esperar_respuesta(estado)
+
+    await enviar_mensaje("¿Con qué medio?\n_Rappicard / efectivo_")
+    medio = await esperar_respuesta(estado)
+
+    
+    registrar_gasto(str(date.today()), monto, categoria, medio)
+    await enviar_mensaje(f"✅ Registrado: ${monto:,} en {categoria} con {medio}".replace(",","."))
+
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 async def main():
@@ -378,6 +425,10 @@ async def main():
             print("✅ Resumen del ciclo enviado")
         else:
             print(f"❌ Error: {resultado}")
+            
+    elif "--gasto" in sys.argv:
+        estado = leer_estado()
+        await flujo_gastos(estado)
 
     else:
         idx = semana_actual()

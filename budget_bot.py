@@ -175,6 +175,8 @@ def calcular_semanas(remanente: int, fecha_pago: date) -> list[dict]:
                  "Rappicard o efectivo" if es_capricho else "Guardar"),
             ],
             "tip": tips[i],
+            "fecha_inicio": str(inicio),
+            "fecha_fin": str(fin),
         })
         inicio = fin + timedelta(days=1)
 
@@ -199,6 +201,8 @@ def calcular_semanas(remanente: int, fecha_pago: date) -> list[dict]:
             ("🐷 Colchón final",      r_c, "Guardar"),
         ],
         "tip": "Modo conservador: llega limpia al próximo pago 💚",
+        "fecha_inicio": str(inicio),
+        "fecha_fin": str(fin_ciclo),
     })
 
     return semanas
@@ -342,6 +346,9 @@ async def flujo_nomina(hoy: date) -> None:
 
                 # Monto válido: calcular y enviar el plan del ciclo
                 semanas = calcular_semanas(remanente, hoy)
+                for s in semanas:
+                    s["gastado"] = 0
+                    s["saldo"] = s["presupuesto"]
                 total = sum(s["presupuesto"] for s in semanas)
 
                 await enviar_mensaje(
@@ -354,6 +361,7 @@ async def flujo_nomina(hoy: date) -> None:
 
                 estado["estado"] = "listo"
                 estado["remanente"] = remanente
+                estado["semanas"] = semanas
                 guardar_estado(estado)
                 print(f"✅ Ciclo configurado con remanente ${remanente:,}")
                 return
@@ -399,11 +407,66 @@ async def flujo_gastos(estado: dict) -> None:
 
     await enviar_mensaje("¿Con qué medio?\n_Rappicard / efectivo_")
     medio = await esperar_respuesta(estado)
-
     
     registrar_gasto(str(date.today()), monto, categoria, medio)
     await enviar_mensaje(f"✅ Registrado: ${monto:,} en {categoria} con {medio}".replace(",","."))
 
+    semana = semana_en_curso(estado)
+    if semana:
+        semana["gastado"] += monto
+        semana["saldo"] = semana["presupuesto"] - semana["gastado"]
+        guardar_estado(estado)
+        await enviar_mensaje(
+            f"📊 Saldo restante esta semana: *${semana['saldo']:,}*"
+        )
+        if semana["saldo"] < 0:
+            await flujo_buffer(estado, semana)
+
+# ── Buffer ────────────────────────────────────────────────────────────────────
+
+async def flujo_buffer(estado: dict, semana: dict) -> None:
+    await enviar_mensaje(
+        f"⚠️ Te pasaste del presupuesto esta semana.\n"
+        f"¿Cuánto buffer tomamos de la semana siguiente?\n"
+        f"_50000 / 100000 / 150000_"
+    )
+
+    respuesta = await esperar_respuesta(estado)
+    buffer = parsear_monto(respuesta)
+
+    if buffer not in [50000, 100000, 150000]:
+        await enviar_mensaje("Monto no válido. Elige 50000, 100000 o 150000.")
+        return
+
+    semanas = estado["semanas"]
+    semana_siguiente = None
+    for i, s in enumerate(semanas):
+        if s == semana and i + 1 < len(semanas):
+            semana_siguiente = semanas[i + 1]
+            break
+
+    if semana_siguiente is None:
+        await enviar_mensaje("No hay semana siguiente para tomar buffer 😔")
+        return
+
+    semana["saldo"] += buffer
+    semana_siguiente["presupuesto"] -= buffer
+    semana_siguiente["saldo"] -= buffer
+    guardar_estado(estado)
+
+    await enviar_mensaje(
+        f"✅ Buffer aplicado: *+${buffer:,}*\n"
+        f"Saldo semana actual: *${semana['saldo']:,}*\n"
+        f"Presupuesto semana siguiente: *${semana_siguiente['presupuesto']:,}*"
+        .replace(",", ".")
+    )
+
+# ── Semana en curso ───────────────────────────────────────────────────────────
+def semana_en_curso(estado:dict):
+    hoy = str(date.today())
+    for s in estado.get("semanas",[]):
+        if s["fecha_inicio"] <= hoy <= s["fecha_fin"]:
+            return s
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -425,7 +488,7 @@ async def main():
             print("✅ Resumen del ciclo enviado")
         else:
             print(f"❌ Error: {resultado}")
-            
+
     elif "--gasto" in sys.argv:
         estado = leer_estado()
         await flujo_gastos(estado)

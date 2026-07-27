@@ -468,6 +468,87 @@ def semana_en_curso(estado:dict):
         if s["fecha_inicio"] <= hoy <= s["fecha_fin"]:
             return s
 
+# ── Funcion de parseo ───────────────────────────────────────────────────────────
+def parsear_gasto_texto(texto:str) -> tuple: 
+    monto = parsear_monto(texto)
+
+    categoria = None 
+    for c in ["domicilios", "salidas", "transporte", "capricho", "mercado", "apto", "mascota", "familia"]:
+        if c in texto.lower():
+            categoria = c 
+            break 
+    
+    medio = None 
+    for m in ["rappicard", "efectivo"]:
+        if m in texto.lower(): 
+            medio = m 
+            break 
+    return (monto, categoria, medio)
+ 
+
+# ── Escucha de gastos ─────────────────────────────────────────────────────────
+
+async def flujo_escucha() -> None:
+    estado = leer_estado()
+    if estado.get("estado") != "listo":
+        print("⏭️  Ciclo no inicializado. Sin acción.")
+        return
+
+    offset = estado.get("ultimo_update_id", 0) + 1
+    gastos_registrados = []
+
+    async with httpx.AsyncClient() as client:
+        updates = await obtener_updates(client, offset)
+
+        for update in updates:
+            estado["ultimo_update_id"] = update["update_id"]
+            offset = update["update_id"] + 1
+
+            msg = update.get("message", {})
+            if str(msg.get("chat", {}).get("id")) != str(CHAT_ID):
+                continue
+
+            texto = msg.get("text", "")
+            if not es_reporte_gasto(texto):
+                continue
+
+            monto, categoria, medio = parsear_gasto_texto(texto)
+            if not monto or not categoria or not medio:
+                await enviar_mensaje(
+                    f"No entendí ese gasto 😅\n"
+                    f"Formato: _hoy gasté 25000 salidas rappicard_"
+                )
+                continue
+
+            registrar_gasto(str(date.today()), monto, categoria, medio)
+
+            semana = semana_en_curso(estado)
+            if semana:
+                semana["gastado"] += monto
+                semana["saldo"] = semana["presupuesto"] - semana["gastado"]
+
+            gastos_registrados.append((monto, categoria, medio))
+
+    guardar_estado(estado)
+
+    if not gastos_registrados:
+        print("📭 Sin mensajes de gasto pendientes.")
+        return
+
+    lineas = ["📋 *Gastos registrados:*"]
+    for monto, categoria, medio in gastos_registrados:
+        lineas.append(f"   · `${monto:,}` · {categoria} · {medio}".replace(",", "."))
+
+    semana = semana_en_curso(estado)
+    if semana:
+        lineas.append(f"\n📊 Saldo restante esta semana: *${semana['saldo']:,}*".replace(",", "."))
+        if semana["saldo"] < 0:
+            await enviar_mensaje("\n".join(lineas))
+            await flujo_buffer(estado, semana)
+            return
+
+    await enviar_mensaje("\n".join(lineas))
+    print(f"✅ {len(gastos_registrados)} gasto(s) procesado(s)")
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
@@ -480,6 +561,9 @@ async def main():
             print(f"⏭️  Hoy ({hoy}) no es día de nómina ({nomina}). Sin acción.")
             return
         await flujo_nomina(hoy)
+
+    elif "--escucha" in sys.argv:
+        await flujo_escucha()
 
     elif "--resumen" in sys.argv:
         mensaje = construir_resumen_ciclo()

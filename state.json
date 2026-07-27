@@ -1,0 +1,168 @@
+{
+  "estado": "listo",
+  "ultimo_update_id": 895059682,
+  "fecha_nomina": "2026-07-20",
+  "remanente": 500000,
+  "semanas": [
+    {
+      "label": "Semana 1",
+      "fechas": "20 Jul \u2013 26 Jul",
+      "presupuesto": 112000,
+      "items": [
+        [
+          "\ud83d\udef5 Domicilios / delivery",
+          43000,
+          "Rappicard"
+        ],
+        [
+          "\u2615 Salidas / planes",
+          27000,
+          "Rappicard"
+        ],
+        [
+          "\ud83d\ude8c Colch\u00f3n transporte",
+          22000,
+          "Efectivo / Rappicard"
+        ],
+        [
+          "\ud83d\udc37 Reserva de la semana",
+          20000,
+          "Guardar"
+        ]
+      ],
+      "tip": "Arranque limpio del ciclo. \u00a1Cabeza fr\u00eda! \ud83d\udcaa",
+      "fecha_inicio": "2026-07-20",
+      "fecha_fin": "2026-07-26",
+      "gastado": 170000,
+      "saldo": -8000
+    },
+    {
+      "label": "Semana 2",
+      "fechas": "27 Jul \u2013 2 Ago",
+      "presupuesto": 62000,
+      "items": [
+        [
+          "\ud83d\udef5 Domicilios / delivery",
+          43000,
+          "Rappicard"
+        ],
+        [
+          "\u2615 Salidas / planes",
+          27000,
+          "Rappicard"
+        ],
+        [
+          "\ud83d\ude8c Colch\u00f3n transporte",
+          22000,
+          "Efectivo / Rappicard"
+        ],
+        [
+          "\u2728 Capricho",
+          20000,
+          "Rappicard o efectivo"
+        ]
+      ],
+      "tip": "Semana del capricho \ud83c\udf89 Solo UN capricho.",
+      "fecha_inicio": "2026-07-27",
+      "fecha_fin": "2026-08-02",
+      "gastado": 0,
+      "saldo": 62000
+    },
+    {
+      "label": "Semana 3",
+      "fechas": "3 Ago \u2013 9 Ago",
+      "presupuesto": 112000,
+      "items": [
+        [
+          "\ud83d\udef5 Domicilios / delivery",
+          43000,
+          "Rappicard"
+        ],
+        [
+          "\u2615 Salidas / planes",
+          27000,
+          "Rappicard"
+        ],
+        [
+          "\ud83d\ude8c Colch\u00f3n transporte",
+          22000,
+          "Efectivo / Rappicard"
+        ],
+        [
+          "\ud83d\udc37 Reserva de la semana",
+          20000,
+          "Guardar"
+        ]
+      ],
+      "tip": "Semana est\u00e1ndar. La reserva se acumula para el cierre \ud83c\udfc1",
+      "fecha_inicio": "2026-08-03",
+      "fecha_fin": "2026-08-09",
+      "gastado": 0,
+      "saldo": 112000
+    },
+    {
+      "label": "Semana 4",
+      "fechas": "10 Ago \u2013 16 Ago",
+      "presupuesto": 112000,
+      "items": [
+        [
+          "\ud83d\udef5 Domicilios / delivery",
+          43000,
+          "Rappicard"
+        ],
+        [
+          "\u2615 Salidas / planes",
+          27000,
+          "Rappicard"
+        ],
+        [
+          "\ud83d\ude8c Colch\u00f3n transporte",
+          22000,
+          "Efectivo / Rappicard"
+        ],
+        [
+          "\ud83d\udc37 Reserva de la semana",
+          20000,
+          "Guardar"
+        ]
+      ],
+      "tip": "Recta final. No arranques caprichos nuevos \ud83d\ude4f",
+      "fecha_inicio": "2026-08-10",
+      "fecha_fin": "2026-08-16",
+      "gastado": 0,
+      "saldo": 112000
+    },
+    {
+      "label": "Cierre del ciclo",
+      "fechas": "17 Ago \u2013 27 Ago",
+      "presupuesto": 52000,
+      "items": [
+        [
+          "\ud83d\udef5 Domicilios b\u00e1sicos",
+          23000,
+          "Rappicard"
+        ],
+        [
+          "\u2615 Salidas m\u00ednimas",
+          11000,
+          "Rappicard"
+        ],
+        [
+          "\ud83d\ude8c Transporte",
+          9000,
+          "Efectivo"
+        ],
+        [
+          "\ud83d\udc37 Colch\u00f3n final",
+          9000,
+          "Guardar"
+        ]
+      ],
+      "tip": "Modo conservador: llega limpia al pr\u00f3ximo pago \ud83d\udc9a",
+      "fecha_inicio": "2026-08-17",
+      "fecha_fin": "2026-08-27",
+      "gastado": 0,
+      "saldo": 52000
+    }
+  ]
+}

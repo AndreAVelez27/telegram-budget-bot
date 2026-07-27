@@ -2,6 +2,8 @@ name: Budget Bot
 
 on:
   schedule:
+    # Escucha de gastos cada 5 minutos
+    - cron: "*/5 * * * *"
     # Inicio de cada semana de presupuesto (sábados 8am Colombia = 13:00 UTC)
     - cron: "0 13 * * 6"
     # Días 24-27: el script decide internamente cuál es el día real de nómina
@@ -11,12 +13,16 @@ on:
       modo:
         description: "Modo de ejecución"
         required: false
-        default: "semanal"
+        default: "escucha"
         type: choice
         options:
+          - escucha
           - semanal
           - resumen
           - nomina
+
+permissions:
+  contents: write
 
 jobs:
   enviar-presupuesto:
@@ -34,11 +40,22 @@ jobs:
       - name: Instalar dependencias
         run: pip install -r requirements.txt
 
+      - name: Escucha de gastos (cada 5 min)
+        if: github.event_name == 'schedule' && startsWith(github.event.schedule, '*/5')
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GOOGLE_CREDENTIALS_B64: ${{ secrets.GOOGLE_CREDENTIALS_B64 }}
+          GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
+        run: python3 budget_bot.py --escucha
+
       - name: Flujo de nómina (días 24-27)
         if: github.event_name == 'schedule' && startsWith(github.event.schedule, '0 13 24-27')
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GOOGLE_CREDENTIALS_B64: ${{ secrets.GOOGLE_CREDENTIALS_B64 }}
+          GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
         run: python3 budget_bot.py --nomina
 
       - name: Enviar presupuesto semanal (sábados)
@@ -53,11 +70,24 @@ jobs:
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GOOGLE_CREDENTIALS_B64: ${{ secrets.GOOGLE_CREDENTIALS_B64 }}
+          GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
         run: |
           if [ "${{ github.event.inputs.modo }}" = "resumen" ]; then
             python3 budget_bot.py --resumen
           elif [ "${{ github.event.inputs.modo }}" = "nomina" ]; then
             python3 budget_bot.py --nomina
+          elif [ "${{ github.event.inputs.modo }}" = "escucha" ]; then
+            python3 budget_bot.py --escucha
           else
             python3 budget_bot.py
           fi
+
+      - name: Persistir state.json
+        if: always()
+        run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git add state.json
+          git diff --staged --quiet || git commit -m "chore: update state [skip ci]"
+          git push

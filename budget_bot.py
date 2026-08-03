@@ -17,70 +17,6 @@ CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 BASE_URL = f"https://api.telegram.org/bot{TOKEN}"
 STATE_FILE = "state.json"
 
-# Ciclo actual hardcodeado (se reemplaza por calcular_semanas() a partir del 27 Jul)
-SEMANAS = [
-    {
-        "label": "Semana 1",
-        "fechas": "27 Jun – 3 Jul",
-        "presupuesto": 415000,
-        "items": [
-            ("🛵 Domicilios / delivery",   160000, "Rappicard"),
-            ("☕ Salidas / planes",         100000, "Rappicard"),
-            ("🚌 Colchón transporte",        80000, "Efectivo / Rappicard"),
-            ("🐷 Reserva de la semana",      75000, "Guardar"),
-        ],
-        "tip": "Arranque limpio del ciclo. Sin caprichos esta semana 💪",
-    },
-    {
-        "label": "Semana 2",
-        "fechas": "4 Jul – 10 Jul",
-        "presupuesto": 415000,
-        "items": [
-            ("🛵 Domicilios / delivery",   160000, "Rappicard"),
-            ("☕ Salidas / planes",          80000, "Rappicard"),
-            ("🚌 Colchón transporte",        60000, "Efectivo / Rappicard"),
-            ("✨ Capricho (jean/maquillaje)",115000, "Rappicard o efectivo"),
-        ],
-        "tip": "Semana del capricho 🎉 Recuerda: max $120k y solo UN capricho.",
-    },
-    {
-        "label": "Semana 3",
-        "fechas": "11 Jul – 17 Jul",
-        "presupuesto": 415000,
-        "items": [
-            ("🛵 Domicilios / delivery",   160000, "Rappicard"),
-            ("☕ Salidas / planes",         100000, "Rappicard"),
-            ("🚌 Colchón transporte",        80000, "Efectivo / Rappicard"),
-            ("🐷 Reserva de la semana",      75000, "Guardar"),
-        ],
-        "tip": "Semana estándar. La reserva se acumula para el cierre 🏁",
-    },
-    {
-        "label": "Semana 4",
-        "fechas": "18 Jul – 24 Jul",
-        "presupuesto": 415000,
-        "items": [
-            ("🛵 Domicilios / delivery",   160000, "Rappicard"),
-            ("☕ Salidas / planes",         100000, "Rappicard"),
-            ("🚌 Colchón transporte",        80000, "Efectivo / Rappicard"),
-            ("🐷 Reserva de la semana",      75000, "Guardar"),
-        ],
-        "tip": "Recta final. No arranques caprichos nuevos esta semana 🙏",
-    },
-    {
-        "label": "Cierre del ciclo",
-        "fechas": "25 Jul – 28 Jul",
-        "presupuesto": 180000,
-        "items": [
-            ("🛵 Domicilios básicos",        80000, "Rappicard"),
-            ("☕ Salidas mínimas",            40000, "Rappicard"),
-            ("🚌 Transporte",                30000, "Efectivo"),
-            ("🐷 Colchón final",             30000, "Guardar"),
-        ],
-        "tip": "Solo 4 días. Modo conservador: llega limpia al pago del 28 💚",
-    },
-]
-
 # ── Estado ────────────────────────────────────────────────────────────────────
 # state.json guarda en qué paso del flujo conversacional estamos.
 # Estructura:
@@ -108,21 +44,6 @@ def dia_nomina(mes: int, año: int) -> date:
     while candidato.weekday() >= 5 or candidato in festivos:
         candidato -= timedelta(days=1)
     return candidato
-
-def semana_actual() -> int:
-    """Índice (0-4) de la semana actual dentro del ciclo hardcodeado."""
-    hoy = date.today()
-    limites = [
-        date(2026, 7, 3),
-        date(2026, 7, 10),
-        date(2026, 7, 17),
-        date(2026, 7, 24),
-        date(2026, 7, 28),
-    ]
-    for i, limite in enumerate(limites):
-        if hoy <= limite:
-            return i
-    return 4
 
 def _fmt(d: date) -> str:
     meses = ["","Ene","Feb","Mar","Abr","May","Jun",
@@ -231,39 +152,24 @@ def construir_mensaje_semana(s: dict, total_ciclo: int, fecha_pago: date) -> str
     ]
     return "\n".join(lineas)
 
-def construir_mensaje(idx: int) -> str:
-    """Usa el ciclo hardcodeado (ciclo actual hasta el 27 Jul)."""
-    s = SEMANAS[idx]
+def construir_resumen_ciclo(estado: dict) -> str:
+    semanas = estado["semanas"]
+    fecha_pago = date.fromisoformat(estado["fecha_nomina"])
+    total = sum(s["presupuesto"] for s in semanas)
     lineas = [
-        f"💚 *Presupuesto semanal — {s['label']}*",
-        f"📅 {s['fechas']}",
-        f"💰 Total disponible: *${s['presupuesto']:,}*\n".replace(",", "."),
+        f"📊 *Resumen del ciclo — {_fmt(fecha_pago)} → {_fmt(date.fromisoformat(semanas[-1]['fecha_fin']))}*",
         "━━━━━━━━━━━━━━━━━━",
     ]
-    for nombre, valor, medio in s["items"]:
-        lineas.append(f"{nombre}\n   `${valor:,}` · _{medio}_".replace(",", "."))
-    lineas += [
-        "━━━━━━━━━━━━━━━━━━",
-        f"💡 {s['tip']}",
-        "",
-        "🃏 *Recuerda:* Rappicard primero (1% cashback). Efectivo solo donde no hay datáfono.",
-        f"\n_Ciclo: 27 Jun → 28 Jul · ${1840000:,} total_".replace(",", "."),
-    ]
-    return "\n".join(lineas)
-
-def construir_resumen_ciclo() -> str:
-    total = sum(s["presupuesto"] for s in SEMANAS)
-    lineas = [
-        "📊 *Resumen del ciclo — 27 Jun → 28 Jul*",
-        "━━━━━━━━━━━━━━━━━━",
-    ]
-    for s in SEMANAS:
-        lineas.append(f"📅 *{s['label']}* ({s['fechas']})\n   💰 `${s['presupuesto']:,}`".replace(",", "."))
+    for s in semanas:
+        lineas.append(
+            f"📅 *{s['label']}* ({s['fechas']})\n"
+            f"   💰 `${s['presupuesto']:,}` · gastado `${s['gastado']:,}` · saldo `${s['saldo']:,}`"
+            .replace(",", ".")
+        )
     lineas += [
         "━━━━━━━━━━━━━━━━━━",
         f"💵 *Total del ciclo: ${total:,}*".replace(",", "."),
         "",
-        "🎉 ¡Nuevo ciclo que empieza hoy! Plata lista, cabeza fría.",
         "_Rappicard primero · Reservas al lado · Sin caprichos de más_ 💚",
     ]
     return "\n".join(lineas)
@@ -469,22 +375,104 @@ def semana_en_curso(estado:dict):
             return s
 
 # ── Funcion de parseo ───────────────────────────────────────────────────────────
-def parsear_gasto_texto(texto:str) -> tuple: 
+
+CATEGORIAS = {
+    "domicilios": ["domicilio", "domicilios", "rappi", "delivery", "pedido"],
+    "salidas":    ["salida", "salidas", "cafe", "café", "restaurante", "plan", "planes"],
+    "transporte": ["transporte", "bus", "taxi", "uber", "metro", "trayecto"],
+    "capricho":   ["capricho", "compra", "jean", "ropa", "maquillaje"],
+    "mercado":    ["mercado", "super", "supermercado", "droguería", "drogueria"],
+    "familia":    ["familia", "casa", "apto", "apartamento"],
+    "mascota":    ["mascota", "veterinaria", "veterinario", "perro", "gato"],
+}
+
+MEDIOS = {
+    "rappicard": ["rappicard", "tarjeta", "credito", "crédito"],
+    "efectivo":  ["efectivo", "cash", "billete"],
+}
+
+def parsear_gasto_texto(texto: str) -> tuple:
     monto = parsear_monto(texto)
 
-    categoria = None 
-    for c in ["domicilios", "salidas", "transporte", "capricho", "mercado", "apto", "mascota", "familia"]:
-        if c in texto.lower():
-            categoria = c 
-            break 
-    
-    medio = None 
-    for m in ["rappicard", "efectivo"]:
-        if m in texto.lower(): 
-            medio = m 
-            break 
+    # Palabras completas del mensaje: evita que "rappicard" active el sinónimo "rappi"
+    palabras = set(re.findall(r"[a-záéíóúñü]+", texto.lower()))
+
+    medio = None
+    for med, sinonimos in MEDIOS.items():
+        if palabras & set(sinonimos):
+            medio = med
+            break
+
+    categoria = None
+    for cat, sinonimos in CATEGORIAS.items():
+        if palabras & set(sinonimos):
+            categoria = cat
+            break
+
     return (monto, categoria, medio)
  
+
+# ── Flujo semanal ─────────────────────────────────────────────────────────────
+# Corre todos los días: solo actúa si hoy es fecha_inicio de una semana del ciclo.
+# La Semana 1 se excluye porque flujo_nomina ya envía el plan completo ese día.
+
+async def flujo_semanal() -> None:
+    estado = leer_estado()
+    if estado.get("estado") != "listo":
+        print("⏭️  Ciclo no inicializado. Sin acción.")
+        return
+
+    hoy = str(date.today())
+    semanas = estado.get("semanas", [])
+
+    idx = None
+    for i, s in enumerate(semanas):
+        if s["fecha_inicio"] == hoy:
+            idx = i
+            break
+
+    if idx is None or idx == 0:
+        print(f"⏭️  Hoy ({hoy}) no empieza ninguna semana. Sin acción.")
+        return
+
+    semana = semanas[idx]
+    anterior = semanas[idx - 1]
+    fecha_pago = date.fromisoformat(estado["fecha_nomina"])
+    total = sum(s["presupuesto"] for s in semanas)
+
+    await enviar_mensaje(construir_mensaje_semana(semana, total, fecha_pago))
+
+    # Pregunta por el remanente de la semana que acaba de terminar
+    await enviar_mensaje(
+        f"🔄 ¿Te quedó remanente de la *{anterior['label']}*?\n"
+        f"_(según mis cuentas quedó ${anterior['saldo']:,})_\n\n"
+        f"Escribe el monto para sumarlo a esta semana, o *no* si no quedó nada."
+        .replace(",", ".")
+    )
+
+    respuesta = await esperar_respuesta(estado, timeout=600)
+
+    if respuesta is None:
+        guardar_estado(estado)
+        print("⏰ Timeout: sin respuesta sobre el remanente.")
+        return
+
+    remanente = parsear_monto(respuesta)
+
+    if remanente:
+        semana["presupuesto"] += remanente
+        semana["saldo"] += remanente
+        guardar_estado(estado)
+        await enviar_mensaje(
+            f"✅ Remanente de *${remanente:,}* sumado.\n"
+            f"💰 Presupuesto de esta semana: *${semana['presupuesto']:,}*"
+            .replace(",", ".")
+        )
+        print(f"✅ Remanente ${remanente:,} sumado a {semana['label']}")
+    else:
+        guardar_estado(estado)
+        await enviar_mensaje("👌 Listo, seguimos con el presupuesto normal de la semana.")
+        print("✅ Sin remanente que sumar.")
 
 # ── Escucha de gastos ─────────────────────────────────────────────────────────
 
@@ -566,7 +554,11 @@ async def main():
         await flujo_escucha()
 
     elif "--resumen" in sys.argv:
-        mensaje = construir_resumen_ciclo()
+        estado = leer_estado()
+        if not estado.get("semanas"):
+            print("⏭️  No hay ciclo configurado. Sin acción.")
+            return
+        mensaje = construir_resumen_ciclo(estado)
         resultado = await enviar_mensaje(mensaje)
         if resultado.get("ok"):
             print("✅ Resumen del ciclo enviado")
@@ -578,13 +570,7 @@ async def main():
         await flujo_gastos(estado)
 
     else:
-        idx = semana_actual()
-        mensaje = construir_mensaje(idx)
-        resultado = await enviar_mensaje(mensaje)
-        if resultado.get("ok"):
-            print(f"✅ Mensaje enviado ({SEMANAS[idx]['label']})")
-        else:
-            print(f"❌ Error: {resultado}")
+        await flujo_semanal()
 
 if __name__ == "__main__":
     asyncio.run(main())

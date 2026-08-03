@@ -8,7 +8,7 @@ import sys
 import httpx
 import holidays
 from dotenv import load_dotenv
-from sheets import registrar_gasto
+from sheets import registrar_gasto, leer_gastos
 
 load_dotenv()
 
@@ -174,6 +174,72 @@ def construir_resumen_ciclo(estado: dict) -> str:
     ]
     return "\n".join(lineas)
 
+# ── Reporte de cierre de ciclo ────────────────────────────────────────────────
+# Cruza lo presupuestado (state.json) contra lo real (Google Sheets) del ciclo
+# que termina: por categoría, semana con más gasto y cashback Rappicard (1%).
+
+def _categoria_de_item(nombre: str) -> str:
+    n = nombre.lower()
+    if "domicilio" in n:
+        return "domicilios"
+    if "salida" in n:
+        return "salidas"
+    if "transporte" in n:
+        return "transporte"
+    if "capricho" in n:
+        return "capricho"
+    return "reserva"
+
+def construir_reporte_cierre(estado: dict, gastos: list) -> str:
+    semanas = estado["semanas"]
+    inicio = estado["fecha_nomina"]
+
+    # Solo gastos del ciclo que termina (fechas ISO comparan bien como texto)
+    ciclo = []
+    for g in gastos:
+        fecha = str(g.get("fecha", ""))
+        monto = parsear_monto(str(g.get("monto", "")))
+        if fecha >= inicio and monto:
+            ciclo.append({
+                "monto": monto,
+                "categoria": str(g.get("categoria", "")).strip().lower(),
+                "medio": str(g.get("medio", "")).strip().lower(),
+            })
+
+    presupuestado = {}
+    for s in semanas:
+        for nombre, valor, _ in s["items"]:
+            cat = _categoria_de_item(nombre)
+            presupuestado[cat] = presupuestado.get(cat, 0) + valor
+
+    real = {}
+    for g in ciclo:
+        real[g["categoria"]] = real.get(g["categoria"], 0) + g["monto"]
+
+    lineas = [
+        "📊 *Cierre del ciclo que termina*",
+        "━━━━━━━━━━━━━━━━━━",
+        "*Presupuestado vs real:*",
+    ]
+    for cat in sorted(set(presupuestado) | set(real)):
+        p = presupuestado.get(cat, 0)
+        r = real.get(cat, 0)
+        marca = "✅" if r <= p else "🔴"
+        lineas.append(f"{marca} {cat}: `${r:,}` de `${p:,}`".replace(",", "."))
+
+    total_p = sum(s["presupuesto"] for s in semanas)
+    total_r = sum(g["monto"] for g in ciclo)
+    semana_top = max(semanas, key=lambda s: s.get("gastado", 0))
+    cashback = round(sum(g["monto"] for g in ciclo if g["medio"] == "rappicard") * 0.01)
+
+    lineas += [
+        "━━━━━━━━━━━━━━━━━━",
+        f"💵 Total: *${total_r:,}* de *${total_p:,}*".replace(",", "."),
+        f"📈 Semana con más gasto: *{semana_top['label']}* (${semana_top.get('gastado', 0):,})".replace(",", "."),
+        f"🃏 Cashback Rappicard: *~${cashback:,}*".replace(",", "."),
+    ]
+    return "\n".join(lineas)
+
 # ── Telegram API ──────────────────────────────────────────────────────────────
 
 async def enviar_mensaje(texto: str) -> dict:
@@ -210,6 +276,14 @@ async def flujo_nomina(hoy: date) -> None:
     if estado.get("estado") == "listo" and estado.get("fecha_nomina") == str(hoy):
         print("✅ Ciclo ya configurado para esta nómina. Sin acción.")
         return
+
+    # Reporte de cierre del ciclo anterior (si existió)
+    if estado.get("semanas"):
+        try:
+            gastos = leer_gastos()
+            await enviar_mensaje(construir_reporte_cierre(estado, gastos))
+        except Exception as e:
+            print(f"⚠️ No se pudo generar el reporte de cierre: {e}")
 
     # Pregunta inicial
     await enviar_mensaje(
@@ -536,6 +610,24 @@ async def flujo_escucha() -> None:
             return
 
     await enviar_mensaje("\n".join(lineas))
+
+    # Alerta proactiva: una sola vez por semana al cruzar el 70% del presupuesto
+    if (
+        semana
+        and not semana.get("alerta_70")
+        and semana["presupuesto"] > 0
+        and semana["gastado"] >= semana["presupuesto"] * 0.7
+    ):
+        semana["alerta_70"] = True
+        guardar_estado(estado)
+        pct = round(semana["gastado"] / semana["presupuesto"] * 100)
+        await enviar_mensaje(
+            f"🚨 *Ojo:* ya llevas el *{pct}%* del presupuesto de la {semana['label']}.\n"
+            f"Te quedan *${semana['saldo']:,}* hasta el {_fmt(date.fromisoformat(semana['fecha_fin']))}. "
+            f"Modo cabeza fría 🧊".replace(",", ".")
+        )
+        print(f"🚨 Alerta 70% enviada ({pct}%)")
+
     print(f"✅ {len(gastos_registrados)} gasto(s) procesado(s)")
 
 # ── Main ──────────────────────────────────────────────────────────────────────

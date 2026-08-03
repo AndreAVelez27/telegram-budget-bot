@@ -24,6 +24,11 @@ def registrar_gasto(fecha, monto, categoria, medio):
     sheet = get_sheet()
     sheet.append_row([fecha, monto, categoria, medio])
 
+def leer_gastos():
+    """Devuelve todos los gastos como lista de dicts (una fila = un dict)."""
+    sheet = get_sheet()
+    return sheet.get_all_records()
+
 
 
 

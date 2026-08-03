@@ -96,8 +96,18 @@ The workflow in [.github/workflows/budget.yml](.github/workflows/budget.yml) run
 
 ## 📱 The bot in action
 
-<!-- TODO: add screenshots -->
-> *Screenshots coming soon: payday conversation, weekly budget message, expense registration, and the 70% alert.*
+**Payday conversation** — the bot asks for your remaining balance and builds the cycle:
+
+![Payday conversation](docs/screenshots/payday-flow.png)
+
+**Weekly budget messages** — one per week, with category allocations:
+
+![Weekly budget — week 1](docs/screenshots/weekly-budget-1.png)
+![Weekly budget — week 2](docs/screenshots/weekly-budget-2.png)
+
+**Expense tracking** — report in natural language, get your updated balance:
+
+![Expense registration](docs/screenshots/expense-tracking.png)
 
 ## ⚠️ Known limitations
 

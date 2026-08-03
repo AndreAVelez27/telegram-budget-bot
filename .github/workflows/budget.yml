@@ -20,6 +20,7 @@ on:
           - semanal
           - resumen
           - nomina
+          - insights
 
 permissions:
   contents: write
@@ -79,6 +80,8 @@ jobs:
             python3 budget_bot.py --nomina
           elif [ "${{ github.event.inputs.modo }}" = "escucha" ]; then
             python3 budget_bot.py --escucha
+          elif [ "${{ github.event.inputs.modo }}" = "insights" ]; then
+            python3 budget_bot.py --insights
           else
             python3 budget_bot.py --semanal
           fi

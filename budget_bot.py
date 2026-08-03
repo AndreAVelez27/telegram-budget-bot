@@ -240,6 +240,79 @@ def construir_reporte_cierre(estado: dict, gastos: list) -> str:
     ]
     return "\n".join(lineas)
 
+# ── Detección de patrones ─────────────────────────────────────────────────────
+# Analiza TODO el historial de Sheets (no solo el ciclo actual). Cada gasto se
+# asigna a su ciclo reconstruyendo el día de nómina del mes correspondiente.
+# Solo genera insights con 2+ ciclos de datos: antes no hay patrón comparable.
+
+DIAS_SEMANA = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+
+# Filas anteriores a esta fecha son pruebas del desarrollo, no gastos reales
+FECHA_INICIO_DATOS = date(2026, 7, 27)
+
+def _ciclo_de(fecha: date) -> date:
+    """Día de nómina que inicia el ciclo al que pertenece esta fecha."""
+    nomina = dia_nomina(fecha.month, fecha.year)
+    if fecha >= nomina:
+        return nomina
+    mes_ant = fecha.month - 1 if fecha.month > 1 else 12
+    año_ant = fecha.year if fecha.month > 1 else fecha.year - 1
+    return dia_nomina(mes_ant, año_ant)
+
+def construir_insights(gastos: list) -> Optional[str]:
+    registros = []
+    for g in gastos:
+        try:
+            fecha = date.fromisoformat(str(g.get("fecha", "")))
+        except ValueError:
+            continue
+        if fecha < FECHA_INICIO_DATOS:
+            continue
+        monto = parsear_monto(str(g.get("monto", "")))
+        if not monto:
+            continue
+        ciclo = _ciclo_de(fecha)
+        registros.append({
+            "monto": monto,
+            "categoria": str(g.get("categoria", "")).strip().lower(),
+            "medio": str(g.get("medio", "")).strip().lower(),
+            "ciclo": str(ciclo),
+            "semana": min((fecha - ciclo).days // 7 + 1, 5),
+            "dia": fecha.weekday(),
+        })
+
+    ciclos = sorted({r["ciclo"] for r in registros})
+    if len(ciclos) < 2:
+        return None
+
+    total = sum(r["monto"] for r in registros)
+
+    por_cat = {}
+    por_semana = {}
+    por_dia = {}
+    for r in registros:
+        por_cat[r["categoria"]] = por_cat.get(r["categoria"], 0) + r["monto"]
+        por_semana[r["semana"]] = por_semana.get(r["semana"], 0) + r["monto"]
+        por_dia[r["dia"]] = por_dia.get(r["dia"], 0) + r["monto"]
+
+    top_cat, top_cat_monto = max(por_cat.items(), key=lambda kv: kv[1])
+    semana_cara, semana_monto = max(por_semana.items(), key=lambda kv: kv[1])
+    dia_caro, dia_monto = max(por_dia.items(), key=lambda kv: kv[1])
+    promedio_ciclo = round(total / len(ciclos))
+    cashback = round(sum(r["monto"] for r in registros if r["medio"] == "rappicard") * 0.01)
+
+    lineas = [
+        f"🔍 *Patrones de tus últimos {len(ciclos)} ciclos*",
+        "━━━━━━━━━━━━━━━━━━",
+        f"🥇 Categoría dominante: *{top_cat}* "
+        f"(`${top_cat_monto:,}` · {round(top_cat_monto / total * 100)}% del total)".replace(",", "."),
+        f"📆 Semana más cara del ciclo: *Semana {semana_cara}* (`${semana_monto:,}`)".replace(",", "."),
+        f"🗓️ Día que más gastas: *{DIAS_SEMANA[dia_caro]}* (`${dia_monto:,}`)".replace(",", "."),
+        f"💸 Promedio por ciclo: *${promedio_ciclo:,}*".replace(",", "."),
+        f"🃏 Cashback histórico Rappicard: *~${cashback:,}*".replace(",", "."),
+    ]
+    return "\n".join(lineas)
+
 # ── Telegram API ──────────────────────────────────────────────────────────────
 
 async def enviar_mensaje(texto: str) -> dict:
@@ -282,6 +355,9 @@ async def flujo_nomina(hoy: date) -> None:
         try:
             gastos = leer_gastos()
             await enviar_mensaje(construir_reporte_cierre(estado, gastos))
+            insights = construir_insights(gastos)
+            if insights:
+                await enviar_mensaje(insights)
         except Exception as e:
             print(f"⚠️ No se pudo generar el reporte de cierre: {e}")
 
@@ -656,6 +732,14 @@ async def main():
             print("✅ Resumen del ciclo enviado")
         else:
             print(f"❌ Error: {resultado}")
+
+    elif "--insights" in sys.argv:
+        mensaje = construir_insights(leer_gastos())
+        if mensaje:
+            await enviar_mensaje(mensaje)
+            print("✅ Insights enviados")
+        else:
+            print("⏭️  Aún no hay 2 ciclos completos de datos. Sin acción.")
 
     elif "--gasto" in sys.argv:
         estado = leer_estado()

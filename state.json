@@ -1,6 +1,6 @@
 {
   "estado": "listo",
-  "ultimo_update_id": 895059705,
+  "ultimo_update_id": 895059707,
   "fecha_nomina": "2026-07-27",
   "remanente": 1771000,
   "semanas": [
@@ -65,8 +65,8 @@
       "tip": "Semana del capricho \ud83c\udf89 Solo UN capricho.",
       "fecha_inicio": "2026-08-03",
       "fecha_fin": "2026-08-09",
-      "gastado": 286970,
-      "saldo": 240720
+      "gastado": 316970,
+      "saldo": 210720
     },
     {
       "label": "Semana 3",

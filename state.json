@@ -1,6 +1,6 @@
 {
   "estado": "listo",
-  "ultimo_update_id": 895059710,
+  "ultimo_update_id": 895059711,
   "fecha_nomina": "2026-07-27",
   "remanente": 1771000,
   "semanas": [
@@ -72,7 +72,7 @@
     {
       "label": "Semana 3",
       "fechas": "10 Ago \u2013 16 Ago",
-      "presupuesto": 398000,
+      "presupuesto": 451747,
       "items": [
         [
           "\ud83d\udef5 Domicilios / delivery",
@@ -99,7 +99,7 @@
       "fecha_inicio": "2026-08-10",
       "fecha_fin": "2026-08-16",
       "gastado": 46200,
-      "saldo": 351800
+      "saldo": 405547
     },
     {
       "label": "Semana 4",

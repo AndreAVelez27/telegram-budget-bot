@@ -1,7 +1,8 @@
 import asyncio
 import json
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from typing import Optional
 import os
 import sys
@@ -16,6 +17,12 @@ TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 BASE_URL = f"https://api.telegram.org/bot{TOKEN}"
 STATE_FILE = "state.json"
+ZONA_COLOMBIA = ZoneInfo("America/Bogota")
+
+def hoy_colombia() -> date:
+    """Fecha actual en Colombia. El runner de GitHub Actions corre en UTC,
+    así que date.today() adelanta el día 5 horas antes de tiempo."""
+    return datetime.now(ZONA_COLOMBIA).date()
 
 # ── Estado ────────────────────────────────────────────────────────────────────
 # state.json guarda en qué paso del flujo conversacional estamos.
@@ -463,8 +470,8 @@ async def flujo_gastos(estado: dict) -> None:
 
     await enviar_mensaje("¿Con qué medio?\n_Rappicard / efectivo_")
     medio = await esperar_respuesta(estado)
-    
-    registrar_gasto(str(date.today()), monto, categoria, medio)
+
+    registrar_gasto(str(hoy_colombia()), monto, categoria, medio)
     await enviar_mensaje(f"✅ Registrado: ${monto:,} en {categoria} con {medio}".replace(",","."))
 
     semana = semana_en_curso(estado)
@@ -519,7 +526,7 @@ async def flujo_buffer(estado: dict, semana: dict) -> None:
 
 # ── Semana en curso ───────────────────────────────────────────────────────────
 def semana_en_curso(estado:dict):
-    hoy = str(date.today())
+    hoy = str(hoy_colombia())
     for s in estado.get("semanas",[]):
         if s["fecha_inicio"] <= hoy <= s["fecha_fin"]:
             return s
@@ -542,10 +549,16 @@ MEDIOS = {
 }
 
 def parsear_gasto_texto(texto: str) -> tuple:
-    monto = parsear_monto(texto)
+    # Nota libre tras un guion (" - "): se separa antes de parsear monto/categoría/medio
+    # para que números o palabras dentro de la nota no interfieran (ej. "- cumpleaños el 25").
+    partes = re.split(r"\s+-\s+", texto, maxsplit=1)
+    cuerpo = partes[0]
+    nota = partes[1].strip() if len(partes) > 1 and partes[1].strip() else None
+
+    monto = parsear_monto(cuerpo)
 
     # Palabras completas del mensaje: evita que "rappicard" active el sinónimo "rappi"
-    palabras = set(re.findall(r"[a-záéíóúñü]+", texto.lower()))
+    palabras = set(re.findall(r"[a-záéíóúñü]+", cuerpo.lower()))
 
     medio = None
     for med, sinonimos in MEDIOS.items():
@@ -559,7 +572,7 @@ def parsear_gasto_texto(texto: str) -> tuple:
             categoria = cat
             break
 
-    return (monto, categoria, medio)
+    return (monto, categoria, medio, nota)
  
 
 # ── Flujo semanal ─────────────────────────────────────────────────────────────
@@ -572,7 +585,7 @@ async def flujo_semanal() -> None:
         print("⏭️  Ciclo no inicializado. Sin acción.")
         return
 
-    hoy = str(date.today())
+    hoy = str(hoy_colombia())
     semanas = estado.get("semanas", [])
 
     idx = None
@@ -650,22 +663,23 @@ async def flujo_escucha() -> None:
             if not es_reporte_gasto(texto):
                 continue
 
-            monto, categoria, medio = parsear_gasto_texto(texto)
+            monto, categoria, medio, nota = parsear_gasto_texto(texto)
             if not monto or not categoria or not medio:
                 await enviar_mensaje(
                     f"No entendí ese gasto 😅\n"
-                    f"Formato: _hoy gasté 25000 salidas rappicard_"
+                    f"Formato: _hoy gasté 25000 salidas rappicard_\n"
+                    f"Con nota (opcional): _hoy gasté 25000 salidas rappicard - cumpleaños de Ana_"
                 )
                 continue
 
-            registrar_gasto(str(date.today()), monto, categoria, medio)
+            registrar_gasto(str(hoy_colombia()), monto, categoria, medio, nota or "")
 
             semana = semana_en_curso(estado)
             if semana:
                 semana["gastado"] += monto
                 semana["saldo"] = semana["presupuesto"] - semana["gastado"]
 
-            gastos_registrados.append((monto, categoria, medio))
+            gastos_registrados.append((monto, categoria, medio, nota))
 
     guardar_estado(estado)
 
@@ -674,8 +688,11 @@ async def flujo_escucha() -> None:
         return
 
     lineas = ["📋 *Gastos registrados:*"]
-    for monto, categoria, medio in gastos_registrados:
-        lineas.append(f"   · `${monto:,}` · {categoria} · {medio}".replace(",", "."))
+    for monto, categoria, medio, nota in gastos_registrados:
+        linea = f"   · `${monto:,}` · {categoria} · {medio}".replace(",", ".")
+        if nota:
+            linea += f" · _{nota}_"
+        lineas.append(linea)
 
     semana = semana_en_curso(estado)
     if semana:
@@ -709,7 +726,7 @@ async def flujo_escucha() -> None:
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 async def main():
-    hoy = date.today()
+    hoy = hoy_colombia()
 
     if "--nomina" in sys.argv:
         nomina = dia_nomina(hoy.month, hoy.year)

@@ -20,9 +20,9 @@ def get_sheet():
     sheet = client.open_by_key(sheet_id)
     return sheet.worksheet("gastos")
 
-def registrar_gasto(fecha, monto, categoria, medio):
+def registrar_gasto(fecha, monto, categoria, medio, nota=""):
     sheet = get_sheet()
-    sheet.append_row([fecha, monto, categoria, medio])
+    sheet.append_row([fecha, monto, categoria, medio, nota])
 
 def leer_gastos():
     """Devuelve todos los gastos como lista de dicts (una fila = un dict)."""

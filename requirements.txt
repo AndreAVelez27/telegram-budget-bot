@@ -3,3 +3,4 @@ python-dotenv>=1.2.1
 holidays>=0.57
 gspread>=6.1.0
 google-auth>=2.0.0
+tzdata>=2024.1

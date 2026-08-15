@@ -1,6 +1,6 @@
 {
   "estado": "listo",
-  "ultimo_update_id": 895059717,
+  "ultimo_update_id": 895059718,
   "fecha_nomina": "2026-07-27",
   "remanente": 1771000,
   "semanas": [
@@ -98,8 +98,9 @@
       "tip": "Semana est\u00e1ndar. La reserva se acumula para el cierre \ud83c\udfc1",
       "fecha_inicio": "2026-08-10",
       "fecha_fin": "2026-08-16",
-      "gastado": 308850,
-      "saldo": 142897
+      "gastado": 351850,
+      "saldo": 99897,
+      "alerta_70": true
     },
     {
       "label": "Semana 4",

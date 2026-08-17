@@ -1,6 +1,6 @@
 {
   "estado": "listo",
-  "ultimo_update_id": 895059720,
+  "ultimo_update_id": 895059721,
   "fecha_nomina": "2026-07-27",
   "remanente": 1771000,
   "semanas": [
@@ -105,7 +105,7 @@
     {
       "label": "Semana 4",
       "fechas": "17 Ago \u2013 23 Ago",
-      "presupuesto": 465997,
+      "presupuesto": 547697,
       "items": [
         [
           "\ud83d\udef5 Domicilios / delivery",
@@ -132,7 +132,7 @@
       "fecha_inicio": "2026-08-17",
       "fecha_fin": "2026-08-23",
       "gastado": 0,
-      "saldo": 465997
+      "saldo": 547697
     },
     {
       "label": "Cierre del ciclo",

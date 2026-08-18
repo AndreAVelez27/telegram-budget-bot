@@ -599,6 +599,16 @@ async def flujo_semanal() -> None:
         return
 
     semana = semanas[idx]
+
+    # Evita doble ejecución (ej. cron atrasado + disparo manual el mismo día):
+    # sin esto, una segunda ejecución vuelve a preguntar el remanente y esperar_respuesta
+    # puede terminar leyendo un mensaje de gasto pendiente como si fuera la respuesta.
+    if semana.get("anunciada"):
+        print(f"⏭️  {semana['label']} ya fue anunciada hoy. Sin acción.")
+        return
+    semana["anunciada"] = True
+    guardar_estado(estado)
+
     anterior = semanas[idx - 1]
     fecha_pago = date.fromisoformat(estado["fecha_nomina"])
     total = sum(s["presupuesto"] for s in semanas)

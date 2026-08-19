@@ -1,6 +1,6 @@
 {
   "estado": "listo",
-  "ultimo_update_id": 895059723,
+  "ultimo_update_id": 895059724,
   "fecha_nomina": "2026-07-27",
   "remanente": 1771000,
   "semanas": [
@@ -131,8 +131,8 @@
       "tip": "Recta final. No arranques caprichos nuevos \ud83d\ude4f",
       "fecha_inicio": "2026-08-17",
       "fecha_fin": "2026-08-23",
-      "gastado": 224440,
-      "saldo": 241557,
+      "gastado": 245539,
+      "saldo": 220458,
       "anunciada": true
     },
     {

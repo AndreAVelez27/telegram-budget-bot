@@ -1,6 +1,6 @@
 {
   "estado": "listo",
-  "ultimo_update_id": 895059727,
+  "ultimo_update_id": 895059728,
   "fecha_nomina": "2026-07-27",
   "remanente": 1771000,
   "semanas": [
@@ -139,7 +139,7 @@
     {
       "label": "Cierre del ciclo",
       "fechas": "24 Ago \u2013 27 Ago",
-      "presupuesto": 179000,
+      "presupuesto": 226606,
       "items": [
         [
           "\ud83d\udef5 Domicilios b\u00e1sicos",
@@ -166,7 +166,8 @@
       "fecha_inicio": "2026-08-24",
       "fecha_fin": "2026-08-27",
       "gastado": 0,
-      "saldo": 179000
+      "saldo": 226606,
+      "anunciada": true
     }
   ]
 }

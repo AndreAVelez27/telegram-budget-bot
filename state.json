@@ -1,7 +1,7 @@
 {
-  "estado": "listo",
+  "estado": "esperando_remanente",
   "ultimo_update_id": 895059728,
-  "fecha_nomina": "2026-07-27",
+  "fecha_nomina": "2026-08-27",
   "remanente": 1771000,
   "semanas": [
     {

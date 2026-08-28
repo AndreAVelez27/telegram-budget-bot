@@ -916,9 +916,10 @@ async def flujo_escucha() -> None:
 
     semana = semana_en_curso(estado)
     if semana:
+        reserva = semana["presupuesto"] - semana.get("presupuesto_tarjeta", 0) - semana.get("presupuesto_efectivo", 0)
         lineas.append(f"\n📊 Saldo restante esta semana: *${semana['saldo']:,}*".replace(",", "."))
         lineas.append(
-            f"💳 Tarjeta: ${semana.get('saldo_tarjeta', 0):,} · 💵 Efectivo: ${semana.get('saldo_efectivo', 0):,}"
+            f"💳 Tarjeta: ${semana.get('saldo_tarjeta', 0):,} · 💵 Efectivo: ${semana.get('saldo_efectivo', 0):,} · 🐷 Reserva: ${reserva:,}"
             .replace(",", ".")
         )
         if semana["saldo"] < 0:

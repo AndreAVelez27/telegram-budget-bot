@@ -1,6 +1,6 @@
 {
   "estado": "listo",
-  "ultimo_update_id": 895059729,
+  "ultimo_update_id": 895059730,
   "fecha_nomina": "2026-08-27",
   "remanente": 1918000,
   "semanas": [
@@ -33,8 +33,8 @@
       "tip": "Arranque limpio del ciclo. \u00a1Cabeza fr\u00eda! \ud83d\udcaa",
       "fecha_inicio": "2026-08-27",
       "fecha_fin": "2026-09-02",
-      "gastado": 0,
-      "saldo": 432000
+      "gastado": 113800,
+      "saldo": 318200
     },
     {
       "label": "Semana 2",

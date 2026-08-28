@@ -349,6 +349,43 @@ def parsear_monto(texto: str) -> Optional[int]:
 
 # ── Flujo de nómina ───────────────────────────────────────────────────────────
 
+async def procesar_remanente(estado: dict, texto: str, fecha_pago: date) -> bool:
+    """Intenta interpretar `texto` como el remanente del mes y arma el ciclo.
+    fecha_pago es el día real de nómina (no necesariamente hoy: una respuesta
+    puede llegar días después, y las semanas deben arrancar en la fecha de pago).
+    Devuelve True si se configuró el ciclo, False si el monto no era válido."""
+    remanente = parsear_monto(texto)
+
+    if remanente is None or remanente < 10000:
+        await enviar_mensaje(
+            "No entendí el monto 😅\n"
+            "Escríbelo como número: ej. *1500000* o *1.500.000*"
+        )
+        return False
+
+    # Monto válido: calcular y enviar el plan del ciclo
+    semanas = calcular_semanas(remanente, fecha_pago)
+    for s in semanas:
+        s["gastado"] = 0
+        s["saldo"] = s["presupuesto"]
+    total = sum(s["presupuesto"] for s in semanas)
+
+    await enviar_mensaje(
+        f"✅ Remanente registrado: *${remanente:,}*\n"
+        f"Te mando el plan del ciclo ahora 👇".replace(",", ".")
+    )
+
+    for semana in semanas:
+        await enviar_mensaje(construir_mensaje_semana(semana, total, fecha_pago))
+
+    estado["estado"] = "listo"
+    estado["remanente"] = remanente
+    estado["semanas"] = semanas
+    guardar_estado(estado)
+    print(f"✅ Ciclo configurado con remanente ${remanente:,}")
+    return True
+
+
 async def flujo_nomina(hoy: date) -> None:
     estado = leer_estado()
 
@@ -398,36 +435,8 @@ async def flujo_nomina(hoy: date) -> None:
                     continue
 
                 texto = msg.get("text", "")
-                remanente = parsear_monto(texto)
-
-                if remanente is None or remanente < 10000:
-                    await enviar_mensaje(
-                        "No entendí el monto 😅\n"
-                        "Escríbelo como número: ej. *1500000* o *1.500.000*"
-                    )
-                    continue
-
-                # Monto válido: calcular y enviar el plan del ciclo
-                semanas = calcular_semanas(remanente, hoy)
-                for s in semanas:
-                    s["gastado"] = 0
-                    s["saldo"] = s["presupuesto"]
-                total = sum(s["presupuesto"] for s in semanas)
-
-                await enviar_mensaje(
-                    f"✅ Remanente registrado: *${remanente:,}*\n"
-                    f"Te mando el plan del ciclo ahora 👇".replace(",", ".")
-                )
-
-                for semana in semanas:
-                    await enviar_mensaje(construir_mensaje_semana(semana, total, hoy))
-
-                estado["estado"] = "listo"
-                estado["remanente"] = remanente
-                estado["semanas"] = semanas
-                guardar_estado(estado)
-                print(f"✅ Ciclo configurado con remanente ${remanente:,}")
-                return
+                if await procesar_remanente(estado, texto, hoy):
+                    return
 
     print("⏰ Timeout: el usuario no respondió en 10 minutos.")
 
@@ -651,6 +660,28 @@ async def flujo_semanal() -> None:
 
 async def flujo_escucha() -> None:
     estado = leer_estado()
+
+    # Respuesta de remanente pendiente (ej. flujo_nomina expiró sin recibirla):
+    # sin esto, un "listo" tardío se queda esperando para siempre porque ningún
+    # otro flujo revisa mensajes mientras el estado no sea "listo".
+    if estado.get("estado") == "esperando_remanente":
+        offset = estado.get("ultimo_update_id", 0) + 1
+        fecha_pago = date.fromisoformat(estado["fecha_nomina"])
+        async with httpx.AsyncClient() as client:
+            updates = await obtener_updates(client, offset)
+            for update in updates:
+                estado["ultimo_update_id"] = update["update_id"]
+
+                msg = update.get("message", {})
+                if str(msg.get("chat", {}).get("id")) != str(CHAT_ID):
+                    continue
+
+                texto = msg.get("text", "")
+                if await procesar_remanente(estado, texto, fecha_pago):
+                    return
+        guardar_estado(estado)
+        return
+
     if estado.get("estado") != "listo":
         print("⏭️  Ciclo no inicializado. Sin acción.")
         return

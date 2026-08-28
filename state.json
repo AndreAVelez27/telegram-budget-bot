@@ -2,31 +2,31 @@
   "estado": "listo",
   "ultimo_update_id": 895059731,
   "fecha_nomina": "2026-08-27",
-  "remanente": 1918000,
+  "remanente": 1582000,
   "semanas": [
     {
       "label": "Semana 1",
       "fechas": "27 Ago \u2013 2 Sep",
-      "presupuesto": 432000,
+      "presupuesto": 356000,
       "items": [
         [
           "\ud83d\udef5 Domicilios / delivery",
-          167000,
+          137000,
           "Rappicard"
         ],
         [
           "\u2615 Salidas / planes",
-          104000,
+          86000,
           "Rappicard"
         ],
         [
           "\ud83d\ude8c Colch\u00f3n transporte",
-          83000,
+          69000,
           "Efectivo / Rappicard"
         ],
         [
           "\ud83d\udc37 Reserva de la semana",
-          78000,
+          64000,
           "Guardar"
         ]
       ],
@@ -34,31 +34,31 @@
       "fecha_inicio": "2026-08-27",
       "fecha_fin": "2026-09-02",
       "gastado": 113800,
-      "saldo": 318200
+      "saldo": 242200
     },
     {
       "label": "Semana 2",
       "fechas": "3 Sep \u2013 9 Sep",
-      "presupuesto": 432000,
+      "presupuesto": 356000,
       "items": [
         [
           "\ud83d\udef5 Domicilios / delivery",
-          167000,
+          137000,
           "Rappicard"
         ],
         [
           "\u2615 Salidas / planes",
-          104000,
+          86000,
           "Rappicard"
         ],
         [
           "\ud83d\ude8c Colch\u00f3n transporte",
-          83000,
+          69000,
           "Efectivo / Rappicard"
         ],
         [
           "\u2728 Capricho",
-          78000,
+          64000,
           "Rappicard o efectivo"
         ]
       ],
@@ -66,31 +66,31 @@
       "fecha_inicio": "2026-09-03",
       "fecha_fin": "2026-09-09",
       "gastado": 0,
-      "saldo": 432000
+      "saldo": 356000
     },
     {
       "label": "Semana 3",
       "fechas": "10 Sep \u2013 16 Sep",
-      "presupuesto": 432000,
+      "presupuesto": 356000,
       "items": [
         [
           "\ud83d\udef5 Domicilios / delivery",
-          167000,
+          137000,
           "Rappicard"
         ],
         [
           "\u2615 Salidas / planes",
-          104000,
+          86000,
           "Rappicard"
         ],
         [
           "\ud83d\ude8c Colch\u00f3n transporte",
-          83000,
+          69000,
           "Efectivo / Rappicard"
         ],
         [
           "\ud83d\udc37 Reserva de la semana",
-          78000,
+          64000,
           "Guardar"
         ]
       ],
@@ -98,31 +98,31 @@
       "fecha_inicio": "2026-09-10",
       "fecha_fin": "2026-09-16",
       "gastado": 0,
-      "saldo": 432000
+      "saldo": 356000
     },
     {
       "label": "Semana 4",
       "fechas": "17 Sep \u2013 23 Sep",
-      "presupuesto": 432000,
+      "presupuesto": 356000,
       "items": [
         [
           "\ud83d\udef5 Domicilios / delivery",
-          167000,
+          137000,
           "Rappicard"
         ],
         [
           "\u2615 Salidas / planes",
-          104000,
+          86000,
           "Rappicard"
         ],
         [
           "\ud83d\ude8c Colch\u00f3n transporte",
-          83000,
+          69000,
           "Efectivo / Rappicard"
         ],
         [
           "\ud83d\udc37 Reserva de la semana",
-          78000,
+          64000,
           "Guardar"
         ]
       ],
@@ -130,31 +130,31 @@
       "fecha_inicio": "2026-09-17",
       "fecha_fin": "2026-09-23",
       "gastado": 0,
-      "saldo": 432000
+      "saldo": 356000
     },
     {
       "label": "Cierre del ciclo",
       "fechas": "24 Sep \u2013 25 Sep",
-      "presupuesto": 190000,
+      "presupuesto": 158000,
       "items": [
         [
           "\ud83d\udef5 Domicilios b\u00e1sicos",
-          84000,
+          70000,
           "Rappicard"
         ],
         [
           "\u2615 Salidas m\u00ednimas",
-          42000,
+          35000,
           "Rappicard"
         ],
         [
           "\ud83d\ude8c Transporte",
-          32000,
+          27000,
           "Efectivo"
         ],
         [
           "\ud83d\udc37 Colch\u00f3n final",
-          32000,
+          26000,
           "Guardar"
         ]
       ],
@@ -162,7 +162,7 @@
       "fecha_inicio": "2026-09-24",
       "fecha_fin": "2026-09-25",
       "gastado": 0,
-      "saldo": 190000
+      "saldo": 158000
     }
   ]
 }

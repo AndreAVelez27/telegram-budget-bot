@@ -34,7 +34,13 @@
       "fecha_inicio": "2026-08-27",
       "fecha_fin": "2026-09-02",
       "gastado": 0,
-      "saldo": 356000
+      "saldo": 356000,
+      "presupuesto_tarjeta": 223000,
+      "presupuesto_efectivo": 69000,
+      "gastado_tarjeta": 0,
+      "gastado_efectivo": 0,
+      "saldo_tarjeta": 223000,
+      "saldo_efectivo": 69000
     },
     {
       "label": "Semana 2",
@@ -66,7 +72,13 @@
       "fecha_inicio": "2026-09-03",
       "fecha_fin": "2026-09-09",
       "gastado": 0,
-      "saldo": 356000
+      "saldo": 356000,
+      "presupuesto_tarjeta": 223000,
+      "presupuesto_efectivo": 69000,
+      "gastado_tarjeta": 0,
+      "gastado_efectivo": 0,
+      "saldo_tarjeta": 223000,
+      "saldo_efectivo": 69000
     },
     {
       "label": "Semana 3",

@@ -65,11 +65,25 @@ def _fmt(d: date) -> str:
 # Dentro de cada semana:
 #   - Domicilios: 38.6%, Salidas: 24.1%, Transporte: 19.3%, Reserva: 18.1%
 
-def calcular_semanas(remanente: int, fecha_pago: date) -> list[dict]:
+def calcular_semanas(
+    remanente: int,
+    fecha_pago: date,
+    n_semanas: int = 4,
+    offset: int = 0,
+    fin_ciclo: Optional[date] = None,
+) -> list[dict]:
+    """n_semanas/offset permiten recalcular solo una parte del ciclo (ej. el
+    ajuste de mitad de ciclo en Semana 3, que solo rehace 2 semanas + cierre).
+    Los pesos (22.5% semana, 10% cierre) son relativos entre sí, así que al
+    reducir n_semanas siguen sumando 100% de lo que quede por repartir."""
     total = (remanente // 1000) * 1000
 
-    p_semana = round(total * 0.225 / 1000) * 1000
-    p_cierre  = total - 4 * p_semana
+    PESO_SEMANA = 22.5
+    PESO_CIERRE = 10
+    peso_total = n_semanas * PESO_SEMANA + PESO_CIERRE
+
+    p_semana = round(total * PESO_SEMANA / peso_total / 1000) * 1000
+    p_cierre = total - n_semanas * p_semana
 
     tips = [
         "Arranque limpio del ciclo. ¡Cabeza fría! 💪",
@@ -81,9 +95,10 @@ def calcular_semanas(remanente: int, fecha_pago: date) -> list[dict]:
     semanas = []
     inicio = fecha_pago
 
-    for i in range(4):
+    for i in range(n_semanas):
+        idx_global = offset + i
         fin = inicio + timedelta(days=6)
-        es_capricho = (i == 1)
+        es_capricho = (idx_global == 1)
 
         d = round(p_semana * 0.386 / 1000) * 1000
         t = round(p_semana * 0.193 / 1000) * 1000
@@ -91,27 +106,30 @@ def calcular_semanas(remanente: int, fecha_pago: date) -> list[dict]:
         r = p_semana - d - t - s  # el resto evita errores de redondeo
 
         semanas.append({
-            "label": f"Semana {i + 1}",
+            "label": f"Semana {idx_global + 1}",
             "fechas": f"{_fmt(inicio)} – {_fmt(fin)}",
             "presupuesto": p_semana,
+            "presupuesto_tarjeta": d + s,
+            "presupuesto_efectivo": t,
             "items": [
                 ("🛵 Domicilios / delivery", d, "Rappicard"),
                 ("☕ Salidas / planes",       s, "Rappicard"),
-                ("🚌 Colchón transporte",     t, "Efectivo / Rappicard"),
+                ("🚌 Colchón transporte",     t, "Efectivo"),
                 ("✨ Capricho" if es_capricho else "🐷 Reserva de la semana",
                  r,
                  "Rappicard o efectivo" if es_capricho else "Guardar"),
             ],
-            "tip": tips[i],
+            "tip": tips[min(idx_global, len(tips) - 1)],
             "fecha_inicio": str(inicio),
             "fecha_fin": str(fin),
         })
         inicio = fin + timedelta(days=1)
 
-    # Fecha fin del ciclo = día de nómina del mes siguiente
-    mes_sig = fecha_pago.month % 12 + 1
-    año_sig = fecha_pago.year + (1 if fecha_pago.month == 12 else 0)
-    fin_ciclo = dia_nomina(mes_sig, año_sig)
+    # Fecha fin del ciclo = día de nómina del mes siguiente (salvo que se pase explícita)
+    if fin_ciclo is None:
+        mes_sig = fecha_pago.month % 12 + 1
+        año_sig = fecha_pago.year + (1 if fecha_pago.month == 12 else 0)
+        fin_ciclo = dia_nomina(mes_sig, año_sig)
 
     d_c = round(p_cierre * 0.44 / 1000) * 1000
     s_c = round(p_cierre * 0.22 / 1000) * 1000
@@ -122,6 +140,8 @@ def calcular_semanas(remanente: int, fecha_pago: date) -> list[dict]:
         "label": "Cierre del ciclo",
         "fechas": f"{_fmt(inicio)} – {_fmt(fin_ciclo)}",
         "presupuesto": p_cierre,
+        "presupuesto_tarjeta": d_c + s_c,
+        "presupuesto_efectivo": t_c,
         "items": [
             ("🛵 Domicilios básicos", d_c, "Rappicard"),
             ("☕ Salidas mínimas",    s_c, "Rappicard"),
@@ -135,6 +155,59 @@ def calcular_semanas(remanente: int, fecha_pago: date) -> list[dict]:
 
     return semanas
 
+def recalcular_medio_ciclo(tarjeta_real: int, efectivo_real: int, fecha_inicio: date, fin_ciclo: date) -> list[dict]:
+    """Reparte la plata REAL que queda en tarjeta y efectivo entre Semana 3,
+    Semana 4 y el Cierre, usando los mismos pesos relativos del ciclo original
+    (22.5% por semana, 10% el cierre). No reintroduce las subcategorías
+    (domicilios/salidas/transporte) porque esa plata ya no es un remanente
+    fresco: es lo que el usuario reporta que le queda hoy."""
+    PESO_SEMANA = 22.5
+    PESO_CIERRE = 10
+    peso_total = 2 * PESO_SEMANA + PESO_CIERRE
+
+    def _reparte(monto: int) -> tuple:
+        por_semana = round(monto * PESO_SEMANA / peso_total / 1000) * 1000
+        cierre = monto - 2 * por_semana
+        return por_semana, cierre
+
+    tarjeta_semana, tarjeta_cierre = _reparte(tarjeta_real)
+    efectivo_semana, efectivo_cierre = _reparte(efectivo_real)
+
+    def _semana(label, tip, tarjeta, efectivo, inicio, fin):
+        return {
+            "label": label,
+            "fechas": f"{_fmt(inicio)} – {_fmt(fin)}",
+            "presupuesto": tarjeta + efectivo,
+            "presupuesto_tarjeta": tarjeta,
+            "presupuesto_efectivo": efectivo,
+            "items": [
+                ("💳 Tarjeta (Rappicard)", tarjeta, "Rappicard"),
+                ("💵 Efectivo", efectivo, "Efectivo"),
+            ],
+            "tip": tip,
+            "fecha_inicio": str(inicio),
+            "fecha_fin": str(fin),
+            "gastado": 0,
+            "saldo": tarjeta + efectivo,
+            "gastado_tarjeta": 0,
+            "gastado_efectivo": 0,
+            "saldo_tarjeta": tarjeta,
+            "saldo_efectivo": efectivo,
+        }
+
+    inicio = fecha_inicio
+    fin = inicio + timedelta(days=6)
+    semana3 = _semana("Semana 3", "Ajuste real a mitad de ciclo 🎯", tarjeta_semana, efectivo_semana, inicio, fin)
+
+    inicio = fin + timedelta(days=1)
+    fin = inicio + timedelta(days=6)
+    semana4 = _semana("Semana 4", "Recta final con plata real 🙏", tarjeta_semana, efectivo_semana, inicio, fin)
+
+    inicio = fin + timedelta(days=1)
+    cierre = _semana("Cierre del ciclo", "Modo conservador: llega limpia al próximo pago 💚", tarjeta_cierre, efectivo_cierre, inicio, fin_ciclo)
+
+    return [semana3, semana4, cierre]
+
 # ── Mensajes ──────────────────────────────────────────────────────────────────
 
 def construir_mensaje_semana(s: dict, total_ciclo: int, fecha_pago: date) -> str:
@@ -145,9 +218,14 @@ def construir_mensaje_semana(s: dict, total_ciclo: int, fecha_pago: date) -> str
     lineas = [
         f"💚 *Presupuesto semanal — {s['label']}*",
         f"📅 {s['fechas']}",
-        f"💰 Total disponible: *${s['presupuesto']:,}*\n".replace(",", "."),
-        "━━━━━━━━━━━━━━━━━━",
+        f"💰 Total disponible: *${s['presupuesto']:,}*".replace(",", "."),
     ]
+    if "presupuesto_tarjeta" in s:
+        lineas.append(
+            f"💳 Tarjeta: ${s['presupuesto_tarjeta']:,} · 💵 Efectivo: ${s['presupuesto_efectivo']:,}\n"
+            .replace(",", ".")
+        )
+    lineas.append("━━━━━━━━━━━━━━━━━━")
     for nombre, valor, medio in s["items"]:
         lineas.append(f"{nombre}\n   `${valor:,}` · _{medio}_".replace(",", "."))
     lineas += [
@@ -347,6 +425,19 @@ def parsear_monto(texto: str) -> Optional[int]:
     limpio = re.sub(r"[^\d]", "", limpio)
     return int(limpio) if limpio else None
 
+def parsear_dos_montos(texto: str) -> Optional[tuple]:
+    """Extrae dos montos de un mensaje tipo 'tarjeta efectivo'.
+    Acepta separarlos por espacio, coma, '/' o ' y '. Ej: '400000 120000'."""
+    partes = re.split(r"[,/]| y ", texto.strip(), flags=re.IGNORECASE)
+    if len(partes) != 2:
+        partes = texto.split()
+    if len(partes) != 2:
+        return None
+    tarjeta, efectivo = parsear_monto(partes[0]), parsear_monto(partes[1])
+    if tarjeta is None or efectivo is None:
+        return None
+    return (tarjeta, efectivo)
+
 # ── Flujo de nómina ───────────────────────────────────────────────────────────
 
 async def procesar_remanente(estado: dict, texto: str, fecha_pago: date) -> bool:
@@ -368,6 +459,10 @@ async def procesar_remanente(estado: dict, texto: str, fecha_pago: date) -> bool
     for s in semanas:
         s["gastado"] = 0
         s["saldo"] = s["presupuesto"]
+        s["gastado_tarjeta"] = 0
+        s["gastado_efectivo"] = 0
+        s["saldo_tarjeta"] = s["presupuesto_tarjeta"]
+        s["saldo_efectivo"] = s["presupuesto_efectivo"]
     total = sum(s["presupuesto"] for s in semanas)
 
     await enviar_mensaje(
@@ -383,6 +478,44 @@ async def procesar_remanente(estado: dict, texto: str, fecha_pago: date) -> bool
     estado["semanas"] = semanas
     guardar_estado(estado)
     print(f"✅ Ciclo configurado con remanente ${remanente:,}")
+    return True
+
+
+async def procesar_ajuste_medios(estado: dict, texto: str, fecha_inicio: date, fin_ciclo: date) -> bool:
+    """Ajuste de mitad de ciclo (Semana 3): el usuario reporta cuánto tiene
+    REALMENTE en tarjeta y efectivo, y se rehacen Semana 3, Semana 4 y el
+    Cierre a partir de esa plata real (reemplaza las últimas 3 semanas del ciclo).
+    Devuelve True si se procesó, False si el mensaje no traía los dos montos."""
+    montos = parsear_dos_montos(texto)
+
+    if montos is None:
+        await enviar_mensaje(
+            "No entendí 😅\n"
+            "Escribe primero lo que te queda en *tarjeta* y luego en *efectivo*, separados por espacio.\n"
+            "_Ej: 400000 120000_"
+        )
+        return False
+
+    tarjeta_real, efectivo_real = montos
+    nuevas = recalcular_medio_ciclo(tarjeta_real, efectivo_real, fecha_inicio, fin_ciclo)
+    nuevas[0]["anunciada"] = True  # evita que flujo_semanal vuelva a preguntar hoy mismo
+    total_restante = tarjeta_real + efectivo_real
+    fecha_pago_original = date.fromisoformat(estado["fecha_nomina"])
+
+    estado["semanas"] = estado["semanas"][:2] + nuevas
+    estado["estado"] = "listo"
+    estado.pop("ajuste_fecha_inicio", None)
+    estado.pop("ajuste_fin_ciclo", None)
+    guardar_estado(estado)
+
+    await enviar_mensaje(
+        f"✅ Ajuste registrado: 💳 *${tarjeta_real:,}* · 💵 *${efectivo_real:,}*\n"
+        f"Te mando el nuevo reparto para lo que falta del ciclo 👇".replace(",", ".")
+    )
+    for semana in nuevas:
+        await enviar_mensaje(construir_mensaje_semana(semana, total_restante, fecha_pago_original))
+
+    print(f"✅ Ajuste medio-ciclo: tarjeta ${tarjeta_real:,}, efectivo ${efectivo_real:,}")
     return True
 
 
@@ -618,10 +751,28 @@ async def flujo_semanal() -> None:
     semana["anunciada"] = True
     guardar_estado(estado)
 
-    anterior = semanas[idx - 1]
     fecha_pago = date.fromisoformat(estado["fecha_nomina"])
     total = sum(s["presupuesto"] for s in semanas)
 
+    # Ajuste de mitad de ciclo: en Semana 3, en vez de la pregunta genérica de
+    # remanente, se pide la plata REAL en tarjeta y efectivo y se rehacen
+    # Semana 3, Semana 4 y el Cierre a partir de eso (ver procesar_ajuste_medios).
+    if idx == 2:
+        fin_ciclo = date.fromisoformat(semanas[-1]["fecha_fin"])
+        await enviar_mensaje(
+            "🔄 *¡Arrancamos la Semana 3!* Antes del presupuesto, hagamos un ajuste con plata real.\n\n"
+            "¿Cuánto tienes disponible *ahora mismo* en tarjeta (Rappicard) y en efectivo?\n"
+            "Escribe los dos montos separados por espacio: primero tarjeta, luego efectivo.\n"
+            "_Ej: 400000 120000_"
+        )
+        estado["estado"] = "esperando_ajuste_medios"
+        estado["ajuste_fecha_inicio"] = semana["fecha_inicio"]
+        estado["ajuste_fin_ciclo"] = str(fin_ciclo)
+        guardar_estado(estado)
+        print("⏳ Esperando ajuste de medios (tarjeta/efectivo) para Semana 3.")
+        return
+
+    anterior = semanas[idx - 1]
     await enviar_mensaje(construir_mensaje_semana(semana, total, fecha_pago))
 
     # Pregunta por el remanente de la semana que acaba de terminar
@@ -682,6 +833,27 @@ async def flujo_escucha() -> None:
         guardar_estado(estado)
         return
 
+    # Ajuste de mitad de ciclo pendiente (Semana 3): mismo patrón que arriba,
+    # para que una respuesta tardía sobre tarjeta/efectivo no se pierda.
+    if estado.get("estado") == "esperando_ajuste_medios":
+        offset = estado.get("ultimo_update_id", 0) + 1
+        fecha_inicio = date.fromisoformat(estado["ajuste_fecha_inicio"])
+        fin_ciclo = date.fromisoformat(estado["ajuste_fin_ciclo"])
+        async with httpx.AsyncClient() as client:
+            updates = await obtener_updates(client, offset)
+            for update in updates:
+                estado["ultimo_update_id"] = update["update_id"]
+
+                msg = update.get("message", {})
+                if str(msg.get("chat", {}).get("id")) != str(CHAT_ID):
+                    continue
+
+                texto = msg.get("text", "")
+                if await procesar_ajuste_medios(estado, texto, fecha_inicio, fin_ciclo):
+                    return
+        guardar_estado(estado)
+        return
+
     if estado.get("estado") != "listo":
         print("⏭️  Ciclo no inicializado. Sin acción.")
         return
@@ -720,6 +892,13 @@ async def flujo_escucha() -> None:
                 semana["gastado"] += monto
                 semana["saldo"] = semana["presupuesto"] - semana["gastado"]
 
+                if medio == "rappicard":
+                    semana["gastado_tarjeta"] = semana.get("gastado_tarjeta", 0) + monto
+                elif medio == "efectivo":
+                    semana["gastado_efectivo"] = semana.get("gastado_efectivo", 0) + monto
+                semana["saldo_tarjeta"] = semana.get("presupuesto_tarjeta", 0) - semana.get("gastado_tarjeta", 0)
+                semana["saldo_efectivo"] = semana.get("presupuesto_efectivo", 0) - semana.get("gastado_efectivo", 0)
+
             gastos_registrados.append((monto, categoria, medio, nota))
 
     guardar_estado(estado)
@@ -738,6 +917,10 @@ async def flujo_escucha() -> None:
     semana = semana_en_curso(estado)
     if semana:
         lineas.append(f"\n📊 Saldo restante esta semana: *${semana['saldo']:,}*".replace(",", "."))
+        lineas.append(
+            f"💳 Tarjeta: ${semana.get('saldo_tarjeta', 0):,} · 💵 Efectivo: ${semana.get('saldo_efectivo', 0):,}"
+            .replace(",", ".")
+        )
         if semana["saldo"] < 0:
             await enviar_mensaje("\n".join(lineas))
             await flujo_buffer(estado, semana)

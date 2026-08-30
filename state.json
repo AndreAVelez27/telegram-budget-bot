@@ -1,6 +1,6 @@
 {
   "estado": "listo",
-  "ultimo_update_id": 895059736,
+  "ultimo_update_id": 895059737,
   "fecha_nomina": "2026-08-27",
   "remanente": 1582000,
   "semanas": [
@@ -33,13 +33,13 @@
       "tip": "Arranque limpio del ciclo. \u00a1Cabeza fr\u00eda! \ud83d\udcaa",
       "fecha_inicio": "2026-08-27",
       "fecha_fin": "2026-09-02",
-      "gastado": 131300,
-      "saldo": 224700,
+      "gastado": 452851,
+      "saldo": -96851,
       "presupuesto_tarjeta": 223000,
       "presupuesto_efectivo": 69000,
-      "gastado_tarjeta": 121800,
+      "gastado_tarjeta": 443351,
       "gastado_efectivo": 9500,
-      "saldo_tarjeta": 101200,
+      "saldo_tarjeta": -220351,
       "saldo_efectivo": 59500
     },
     {

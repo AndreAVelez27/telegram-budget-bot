@@ -1,6 +1,6 @@
 {
   "estado": "listo",
-  "ultimo_update_id": 895059738,
+  "ultimo_update_id": 895059739,
   "fecha_nomina": "2026-08-27",
   "remanente": 1582000,
   "semanas": [
@@ -45,136 +45,115 @@
     {
       "label": "Semana 2",
       "fechas": "3 Sep \u2013 9 Sep",
-      "presupuesto": 356000,
+      "presupuesto": 307000,
+      "presupuesto_tarjeta": 276000,
+      "presupuesto_efectivo": 31000,
       "items": [
         [
-          "\ud83d\udef5 Domicilios / delivery",
-          137000,
+          "\ud83d\udcb3 Tarjeta (Rappicard)",
+          276000,
           "Rappicard"
         ],
         [
-          "\u2615 Salidas / planes",
-          86000,
-          "Rappicard"
-        ],
-        [
-          "\ud83d\ude8c Colch\u00f3n transporte",
-          69000,
-          "Efectivo / Rappicard"
-        ],
-        [
-          "\u2728 Capricho",
-          64000,
-          "Rappicard o efectivo"
+          "\ud83d\udcb5 Efectivo",
+          31000,
+          "Efectivo"
         ]
       ],
-      "tip": "Semana del capricho \ud83c\udf89 Solo UN capricho.",
+      "tip": "Ajuste real a mitad de ciclo \ud83c\udfaf",
       "fecha_inicio": "2026-09-03",
       "fecha_fin": "2026-09-09",
       "gastado": 0,
-      "saldo": 356000,
-      "presupuesto_tarjeta": 223000,
-      "presupuesto_efectivo": 69000,
+      "saldo": 307000,
       "gastado_tarjeta": 0,
       "gastado_efectivo": 0,
-      "saldo_tarjeta": 223000,
-      "saldo_efectivo": 69000
+      "saldo_tarjeta": 276000,
+      "saldo_efectivo": 31000,
+      "ajustada": true
     },
     {
       "label": "Semana 3",
       "fechas": "10 Sep \u2013 16 Sep",
-      "presupuesto": 356000,
+      "presupuesto": 307000,
+      "presupuesto_tarjeta": 276000,
+      "presupuesto_efectivo": 31000,
       "items": [
         [
-          "\ud83d\udef5 Domicilios / delivery",
-          137000,
+          "\ud83d\udcb3 Tarjeta (Rappicard)",
+          276000,
           "Rappicard"
         ],
         [
-          "\u2615 Salidas / planes",
-          86000,
-          "Rappicard"
-        ],
-        [
-          "\ud83d\ude8c Colch\u00f3n transporte",
-          69000,
-          "Efectivo / Rappicard"
-        ],
-        [
-          "\ud83d\udc37 Reserva de la semana",
-          64000,
-          "Guardar"
+          "\ud83d\udcb5 Efectivo",
+          31000,
+          "Efectivo"
         ]
       ],
-      "tip": "Semana est\u00e1ndar. La reserva se acumula para el cierre \ud83c\udfc1",
+      "tip": "Sigue con cabeza fr\u00eda, vas por buen camino \ud83d\udcaa",
       "fecha_inicio": "2026-09-10",
       "fecha_fin": "2026-09-16",
       "gastado": 0,
-      "saldo": 356000
+      "saldo": 307000,
+      "gastado_tarjeta": 0,
+      "gastado_efectivo": 0,
+      "saldo_tarjeta": 276000,
+      "saldo_efectivo": 31000
     },
     {
       "label": "Semana 4",
       "fechas": "17 Sep \u2013 23 Sep",
-      "presupuesto": 356000,
+      "presupuesto": 307000,
+      "presupuesto_tarjeta": 276000,
+      "presupuesto_efectivo": 31000,
       "items": [
         [
-          "\ud83d\udef5 Domicilios / delivery",
-          137000,
+          "\ud83d\udcb3 Tarjeta (Rappicard)",
+          276000,
           "Rappicard"
         ],
         [
-          "\u2615 Salidas / planes",
-          86000,
-          "Rappicard"
-        ],
-        [
-          "\ud83d\ude8c Colch\u00f3n transporte",
-          69000,
-          "Efectivo / Rappicard"
-        ],
-        [
-          "\ud83d\udc37 Reserva de la semana",
-          64000,
-          "Guardar"
+          "\ud83d\udcb5 Efectivo",
+          31000,
+          "Efectivo"
         ]
       ],
-      "tip": "Recta final. No arranques caprichos nuevos \ud83d\ude4f",
+      "tip": "Recta final con plata real \ud83d\ude4f",
       "fecha_inicio": "2026-09-17",
       "fecha_fin": "2026-09-23",
       "gastado": 0,
-      "saldo": 356000
+      "saldo": 307000,
+      "gastado_tarjeta": 0,
+      "gastado_efectivo": 0,
+      "saldo_tarjeta": 276000,
+      "saldo_efectivo": 31000
     },
     {
       "label": "Cierre del ciclo",
       "fechas": "24 Sep \u2013 25 Sep",
-      "presupuesto": 158000,
+      "presupuesto": 136000,
+      "presupuesto_tarjeta": 121000,
+      "presupuesto_efectivo": 15000,
       "items": [
         [
-          "\ud83d\udef5 Domicilios b\u00e1sicos",
-          70000,
+          "\ud83d\udcb3 Tarjeta (Rappicard)",
+          121000,
           "Rappicard"
         ],
         [
-          "\u2615 Salidas m\u00ednimas",
-          35000,
-          "Rappicard"
-        ],
-        [
-          "\ud83d\ude8c Transporte",
-          27000,
+          "\ud83d\udcb5 Efectivo",
+          15000,
           "Efectivo"
-        ],
-        [
-          "\ud83d\udc37 Colch\u00f3n final",
-          26000,
-          "Guardar"
         ]
       ],
       "tip": "Modo conservador: llega limpia al pr\u00f3ximo pago \ud83d\udc9a",
       "fecha_inicio": "2026-09-24",
       "fecha_fin": "2026-09-25",
       "gastado": 0,
-      "saldo": 158000
+      "saldo": 136000,
+      "gastado_tarjeta": 0,
+      "gastado_efectivo": 0,
+      "saldo_tarjeta": 121000,
+      "saldo_efectivo": 15000
     }
   ]
 }

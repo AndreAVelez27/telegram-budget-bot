@@ -29,6 +29,17 @@ def leer_gastos():
     sheet = get_sheet()
     return sheet.get_all_records()
 
+def borrar_ultimo_gasto():
+    """Borra la última fila de gastos y devuelve sus datos como dict.
+    Devuelve None si no hay gastos registrados."""
+    sheet = get_sheet()
+    valores = sheet.get_all_values()
+    if len(valores) <= 1:  # solo encabezado o vacío
+        return None
+    encabezado, fila = valores[0], valores[-1]
+    sheet.delete_rows(len(valores))
+    return dict(zip(encabezado, fila))
+
 
 
 

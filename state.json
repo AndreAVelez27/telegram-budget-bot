@@ -69,7 +69,8 @@
       "gastado_efectivo": 0,
       "saldo_tarjeta": 276000,
       "saldo_efectivo": 31000,
-      "ajustada": true
+      "ajustada": true,
+      "anunciada": true
     },
     {
       "label": "Semana 3",

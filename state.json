@@ -1,6 +1,6 @@
 {
   "estado": "listo",
-  "ultimo_update_id": 895059739,
+  "ultimo_update_id": 895059740,
   "fecha_nomina": "2026-08-27",
   "remanente": 1582000,
   "semanas": [
@@ -75,46 +75,47 @@
     {
       "label": "Semana 3",
       "fechas": "10 Sep \u2013 16 Sep",
-      "presupuesto": 307000,
-      "presupuesto_tarjeta": 276000,
-      "presupuesto_efectivo": 31000,
+      "presupuesto": 405000,
+      "presupuesto_tarjeta": 378000,
+      "presupuesto_efectivo": 27000,
       "items": [
         [
           "\ud83d\udcb3 Tarjeta (Rappicard)",
-          276000,
+          378000,
           "Rappicard"
         ],
         [
           "\ud83d\udcb5 Efectivo",
-          31000,
+          27000,
           "Efectivo"
         ]
       ],
-      "tip": "Sigue con cabeza fr\u00eda, vas por buen camino \ud83d\udcaa",
+      "tip": "Ajuste real a mitad de ciclo \ud83c\udfaf",
       "fecha_inicio": "2026-09-10",
       "fecha_fin": "2026-09-16",
       "gastado": 0,
-      "saldo": 307000,
+      "saldo": 405000,
       "gastado_tarjeta": 0,
       "gastado_efectivo": 0,
-      "saldo_tarjeta": 276000,
-      "saldo_efectivo": 31000
+      "saldo_tarjeta": 378000,
+      "saldo_efectivo": 27000,
+      "ajustada": true
     },
     {
       "label": "Semana 4",
       "fechas": "17 Sep \u2013 23 Sep",
-      "presupuesto": 307000,
-      "presupuesto_tarjeta": 276000,
-      "presupuesto_efectivo": 31000,
+      "presupuesto": 405000,
+      "presupuesto_tarjeta": 378000,
+      "presupuesto_efectivo": 27000,
       "items": [
         [
           "\ud83d\udcb3 Tarjeta (Rappicard)",
-          276000,
+          378000,
           "Rappicard"
         ],
         [
           "\ud83d\udcb5 Efectivo",
-          31000,
+          27000,
           "Efectivo"
         ]
       ],
@@ -122,27 +123,27 @@
       "fecha_inicio": "2026-09-17",
       "fecha_fin": "2026-09-23",
       "gastado": 0,
-      "saldo": 307000,
+      "saldo": 405000,
       "gastado_tarjeta": 0,
       "gastado_efectivo": 0,
-      "saldo_tarjeta": 276000,
-      "saldo_efectivo": 31000
+      "saldo_tarjeta": 378000,
+      "saldo_efectivo": 27000
     },
     {
       "label": "Cierre del ciclo",
       "fechas": "24 Sep \u2013 25 Sep",
-      "presupuesto": 136000,
-      "presupuesto_tarjeta": 121000,
-      "presupuesto_efectivo": 15000,
+      "presupuesto": 180000,
+      "presupuesto_tarjeta": 168000,
+      "presupuesto_efectivo": 12000,
       "items": [
         [
           "\ud83d\udcb3 Tarjeta (Rappicard)",
-          121000,
+          168000,
           "Rappicard"
         ],
         [
           "\ud83d\udcb5 Efectivo",
-          15000,
+          12000,
           "Efectivo"
         ]
       ],
@@ -150,11 +151,11 @@
       "fecha_inicio": "2026-09-24",
       "fecha_fin": "2026-09-25",
       "gastado": 0,
-      "saldo": 136000,
+      "saldo": 180000,
       "gastado_tarjeta": 0,
       "gastado_efectivo": 0,
-      "saldo_tarjeta": 121000,
-      "saldo_efectivo": 15000
+      "saldo_tarjeta": 168000,
+      "saldo_efectivo": 12000
     }
   ]
 }

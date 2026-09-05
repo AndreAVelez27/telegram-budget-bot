@@ -1,5 +1,4 @@
 import asyncio
-import json
 import re
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -10,13 +9,13 @@ import httpx
 import holidays
 from dotenv import load_dotenv
 from sheets import registrar_gasto, leer_gastos, borrar_ultimo_gasto
+from estado_store import leer_estado, guardar_estado
 
 load_dotenv()
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 BASE_URL = f"https://api.telegram.org/bot{TOKEN}"
-STATE_FILE = "state.json"
 ZONA_COLOMBIA = ZoneInfo("America/Bogota")
 
 def hoy_colombia() -> date:
@@ -25,22 +24,14 @@ def hoy_colombia() -> date:
     return datetime.now(ZONA_COLOMBIA).date()
 
 # ── Estado ────────────────────────────────────────────────────────────────────
-# state.json guarda en qué paso del flujo conversacional estamos.
-# Estructura:
-#   estado:          "idle" | "esperando_remanente" | "listo"
+# El estado conversacional vive en Firestore (ver estado_store.py), no en un
+# archivo local — dos sistemas (GitHub Actions hoy, Cloud Run en la Fase B)
+# pueden escribirlo a la vez y state.json en git no soporta eso sin condiciones
+# de carrera. Estructura:
+#   estado:          "idle" | "esperando_remanente" | "esperando_ajuste_medios" | "listo"
 #   ultimo_update_id: el último mensaje de Telegram que ya procesamos
 #   fecha_nomina:    fecha del último día de nómina procesado (evita repetir)
 #   remanente:       valor confirmado por el usuario
-
-def leer_estado() -> dict:
-    if os.path.exists(STATE_FILE):
-        with open(STATE_FILE) as f:
-            return json.load(f)
-    return {"estado": "idle", "ultimo_update_id": 0}
-
-def guardar_estado(estado: dict) -> None:
-    with open(STATE_FILE, "w") as f:
-        json.dump(estado, f, indent=2, default=str)
 
 # ── Fechas ────────────────────────────────────────────────────────────────────
 

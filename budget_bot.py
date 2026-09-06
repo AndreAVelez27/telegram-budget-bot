@@ -881,9 +881,9 @@ async def flujo_semanal() -> None:
 # ── Ajuste manual (bajo demanda) ───────────────────────────────────────────────
 # A diferencia del checkpoint automático de la Semana 3 (ver flujo_semanal),
 # esto se dispara a mano (workflow_dispatch modo=ajuste) cualquier día del
-# ciclo. Recalcula desde la próxima semana que aún no ha empezado (la semana
-# en curso, si la hay, se deja tal cual porque ya está en marcha) más el
-# Cierre, con la plata real que el usuario reporte en ese momento.
+# ciclo. Recalcula desde la semana en curso (si hay una activa hoy) o, si no,
+# desde la próxima semana que aún no ha empezado, más el Cierre, con la plata
+# real que el usuario reporte en ese momento.
 
 async def flujo_ajuste_manual() -> None:
     estado = leer_estado()
@@ -896,7 +896,7 @@ async def flujo_ajuste_manual() -> None:
 
     idx = None
     for i, s in enumerate(semanas):
-        if s["label"] != "Cierre del ciclo" and s["fecha_inicio"] > hoy:
+        if s["label"] != "Cierre del ciclo" and s["fecha_fin"] >= hoy:
             idx = i
             break
 

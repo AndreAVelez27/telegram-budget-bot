@@ -1,4 +1,5 @@
 import asyncio
+import calendar
 import re
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -6,10 +7,10 @@ from typing import Optional
 import os
 import sys
 import httpx
-import holidays
 from dotenv import load_dotenv
 from sheets import registrar_gasto, leer_gastos, borrar_ultimo_gasto
 from estado_store import leer_estado, guardar_estado
+from clasificador import clasificar_gasto
 
 load_dotenv()
 
@@ -28,20 +29,51 @@ def hoy_colombia() -> date:
 # archivo local — dos sistemas (GitHub Actions hoy, Cloud Run en la Fase B)
 # pueden escribirlo a la vez y state.json en git no soporta eso sin condiciones
 # de carrera. Estructura:
-#   estado:          "idle" | "esperando_remanente" | "esperando_ajuste_medios" | "listo"
-#   ultimo_update_id: el último mensaje de Telegram que ya procesamos
-#   fecha_nomina:    fecha del último día de nómina procesado (evita repetir)
-#   remanente:       valor confirmado por el usuario
+#   estado:              "idle" | "esperando_presupuestos_categoria" | "esperando_ajuste_medios" | "listo"
+#   ultimo_update_id:    el último mensaje de Telegram que ya procesamos
+#   fecha_nomina:        fecha del último día de nómina procesado (evita repetir)
+#   dia_nomina_config:   día del mes (1-31) configurado como día de pago, literal
+#                        (sin ajuste por fin de semana/festivo)
+#   categorias:          {categoria: {"presupuesto": int, "gastado": int}} del ciclo actual
+
+# ── Categorías ────────────────────────────────────────────────────────────────
+
+CATEGORIAS_LABELS = {
+    "rappicard": "💳 Rappicard",
+    "transporte": "🚌 Transporte",
+    "mercado": "🛒 Mercado",
+    "gastos_personales": "🎉 Gastos personales",
+    "mascota": "🐾 Mascota",
+}
+
+MEDIOS = {
+    "rappicard": ["rappicard", "tarjeta", "credito", "crédito"],
+    "efectivo":  ["efectivo", "cash", "billete"],
+}
+
+def normalizar_categoria(texto: Optional[str]) -> Optional[str]:
+    """Convierte una respuesta libre (clave o etiqueta, ej. 'transporte' o
+    '🚌 Transporte') a la clave canónica de CATEGORIAS_LABELS, o None si no
+    coincide con ninguna."""
+    if not texto:
+        return None
+    t = texto.strip().lower()
+    for clave, etiqueta in CATEGORIAS_LABELS.items():
+        etiqueta_texto = re.sub(r"[^\w\s]", "", etiqueta).strip().lower()
+        if clave.replace("_", " ") in t or etiqueta_texto in t:
+            return clave
+    return None
 
 # ── Fechas ────────────────────────────────────────────────────────────────────
 
-def dia_nomina(mes: int, año: int) -> date:
-    """Último día hábil colombiano en o antes del 27 del mes dado."""
-    festivos = holidays.Colombia(years=año)
-    candidato = date(año, mes, 27)
-    while candidato.weekday() >= 5 or candidato in festivos:
-        candidato -= timedelta(days=1)
-    return candidato
+DIA_NOMINA_DEFAULT = 17
+
+def dia_nomina(mes: int, año: int, dia: int = DIA_NOMINA_DEFAULT) -> date:
+    """Día de nómina configurado por el usuario, literal (sin ajuste por fin de
+    semana o festivo). Si el mes no tiene ese día (ej. 31 en febrero), usa el
+    último día del mes."""
+    ultimo_dia_mes = calendar.monthrange(año, mes)[1]
+    return date(año, mes, min(dia, ultimo_dia_mes))
 
 def _fmt(d: date) -> str:
     meses = ["","Ene","Feb","Mar","Abr","May","Jun",
@@ -49,39 +81,45 @@ def _fmt(d: date) -> str:
     return f"{d.day} {meses[d.month]}"
 
 # ── Cálculo dinámico del ciclo ────────────────────────────────────────────────
-# Dado un remanente, distribuye el presupuesto en 4 semanas + cierre.
-# Porcentajes basados en el ciclo actual como referencia:
-#   - Cada semana normal: ~22.5% del total
-#   - Cierre (~4 días):   ~10% del total (lo que sobre de las 4 semanas)
-# Dentro de cada semana:
-#   - Domicilios: 38.6%, Salidas: 24.1%, Transporte: 19.3%, Reserva: 18.1%
+# Dado un presupuesto por categoría (para el ciclo completo), distribuye cada
+# categoría en 4 semanas + cierre con los mismos pesos relativos:
+#   - Cada semana normal: ~22.5% del total de cada categoría
+#   - Cierre (~4 días):   ~10% del total de cada categoría
 
-def calcular_semanas(
-    remanente: int,
+PESO_SEMANA = 22.5
+PESO_CIERRE = 10
+
+TIPS_SEMANA = [
+    "Arranque limpio del ciclo. ¡Cabeza fría! 💪",
+    "Sigue con cabeza fría, vas por buen camino 💪",
+    "Semana estándar. Cuida el ritmo para llegar bien al cierre 🏁",
+    "Recta final. No arranques gastos nuevos que no estén presupuestados 🙏",
+]
+
+def calcular_semanas_categorias(
+    presupuestos: dict,
     fecha_pago: date,
+    dia_nomina_config: int = DIA_NOMINA_DEFAULT,
     n_semanas: int = 4,
     offset: int = 0,
     fin_ciclo: Optional[date] = None,
 ) -> list[dict]:
-    """n_semanas/offset permiten recalcular solo una parte del ciclo (ej. el
-    ajuste de mitad de ciclo en Semana 3, que solo rehace 2 semanas + cierre).
-    Los pesos (22.5% semana, 10% cierre) son relativos entre sí, así que al
-    reducir n_semanas siguen sumando 100% de lo que quede por repartir."""
-    total = (remanente // 1000) * 1000
-
-    PESO_SEMANA = 22.5
-    PESO_CIERRE = 10
+    """n_semanas/offset permiten recalcular solo una parte del ciclo. Los pesos
+    (22.5% semana, 10% cierre) son relativos entre sí, así que al reducir
+    n_semanas siguen sumando 100% de lo que quede por repartir.
+    `presupuestos` es {categoria: monto_total_del_ciclo}, ej. el resultado de
+    procesar_presupuestos_categoria. Cada categoría se reparte por separado
+    con los mismos pesos, para que el desglose semanal muestre cuánto toca de
+    cada categoría esa semana."""
     peso_total = n_semanas * PESO_SEMANA + PESO_CIERRE
 
-    p_semana = round(total * PESO_SEMANA / peso_total / 1000) * 1000
-    p_cierre = total - n_semanas * p_semana
-
-    tips = [
-        "Arranque limpio del ciclo. ¡Cabeza fría! 💪",
-        "Semana del capricho 🎉 Solo UN capricho.",
-        "Semana estándar. La reserva se acumula para el cierre 🏁",
-        "Recta final. No arranques caprichos nuevos 🙏",
-    ]
+    por_semana = {}
+    por_cierre = {}
+    for cat, monto in presupuestos.items():
+        total = (monto // 1000) * 1000
+        p_semana = round(total * PESO_SEMANA / peso_total / 1000) * 1000
+        por_semana[cat] = p_semana
+        por_cierre[cat] = total - n_semanas * p_semana
 
     semanas = []
     inicio = fecha_pago
@@ -89,28 +127,16 @@ def calcular_semanas(
     for i in range(n_semanas):
         idx_global = offset + i
         fin = inicio + timedelta(days=6)
-        es_capricho = (idx_global == 1)
 
-        d = round(p_semana * 0.386 / 1000) * 1000
-        t = round(p_semana * 0.193 / 1000) * 1000
-        s = round(p_semana * 0.241 / 1000) * 1000
-        r = p_semana - d - t - s  # el resto evita errores de redondeo
+        items = [(CATEGORIAS_LABELS.get(cat, cat), por_semana[cat], "") for cat in presupuestos]
+        presupuesto_semana = sum(por_semana.values())
 
         semanas.append({
             "label": f"Semana {idx_global + 1}",
             "fechas": f"{_fmt(inicio)} – {_fmt(fin)}",
-            "presupuesto": p_semana,
-            "presupuesto_tarjeta": d + s,
-            "presupuesto_efectivo": t,
-            "items": [
-                ("🛵 Domicilios / delivery", d, "Rappicard"),
-                ("☕ Salidas / planes",       s, "Rappicard"),
-                ("🚌 Colchón transporte",     t, "Efectivo"),
-                ("✨ Capricho" if es_capricho else "🐷 Reserva de la semana",
-                 r,
-                 "Rappicard o efectivo" if es_capricho else "Guardar"),
-            ],
-            "tip": tips[min(idx_global, len(tips) - 1)],
+            "presupuesto": presupuesto_semana,
+            "items": items,
+            "tip": TIPS_SEMANA[min(idx_global, len(TIPS_SEMANA) - 1)],
             "fecha_inicio": str(inicio),
             "fecha_fin": str(fin),
         })
@@ -120,25 +146,16 @@ def calcular_semanas(
     if fin_ciclo is None:
         mes_sig = fecha_pago.month % 12 + 1
         año_sig = fecha_pago.year + (1 if fecha_pago.month == 12 else 0)
-        fin_ciclo = dia_nomina(mes_sig, año_sig)
+        fin_ciclo = dia_nomina(mes_sig, año_sig, dia_nomina_config)
 
-    d_c = round(p_cierre * 0.44 / 1000) * 1000
-    s_c = round(p_cierre * 0.22 / 1000) * 1000
-    t_c = round(p_cierre * 0.17 / 1000) * 1000
-    r_c = p_cierre - d_c - s_c - t_c
+    items_cierre = [(CATEGORIAS_LABELS.get(cat, cat), por_cierre[cat], "") for cat in presupuestos]
+    presupuesto_cierre = sum(por_cierre.values())
 
     semanas.append({
         "label": "Cierre del ciclo",
         "fechas": f"{_fmt(inicio)} – {_fmt(fin_ciclo)}",
-        "presupuesto": p_cierre,
-        "presupuesto_tarjeta": d_c + s_c,
-        "presupuesto_efectivo": t_c,
-        "items": [
-            ("🛵 Domicilios básicos", d_c, "Rappicard"),
-            ("☕ Salidas mínimas",    s_c, "Rappicard"),
-            ("🚌 Transporte",         t_c, "Efectivo"),
-            ("🐷 Colchón final",      r_c, "Guardar"),
-        ],
+        "presupuesto": presupuesto_cierre,
+        "items": items_cierre,
         "tip": "Modo conservador: llega limpia al próximo pago 💚",
         "fecha_inicio": str(inicio),
         "fecha_fin": str(fin_ciclo),
@@ -216,24 +233,19 @@ def recalcular_medio_ciclo(
 
 # ── Mensajes ──────────────────────────────────────────────────────────────────
 
-def construir_mensaje_semana(s: dict, total_ciclo: int, fecha_pago: date) -> str:
+def construir_mensaje_semana(s: dict, total_ciclo: int, fecha_pago: date, dia_nomina_config: int = DIA_NOMINA_DEFAULT) -> str:
     mes_sig = fecha_pago.month % 12 + 1
     año_sig = fecha_pago.year + (1 if fecha_pago.month == 12 else 0)
-    fin_ciclo = dia_nomina(mes_sig, año_sig)
+    fin_ciclo = dia_nomina(mes_sig, año_sig, dia_nomina_config)
 
     lineas = [
         f"💚 *Presupuesto semanal — {s['label']}*",
         f"📅 {s['fechas']}",
         f"💰 Total disponible: *${s['presupuesto']:,}*".replace(",", "."),
     ]
-    if "presupuesto_tarjeta" in s:
-        lineas.append(
-            f"💳 Tarjeta: ${s['presupuesto_tarjeta']:,} · 💵 Efectivo: ${s['presupuesto_efectivo']:,}\n"
-            .replace(",", ".")
-        )
     lineas.append("━━━━━━━━━━━━━━━━━━")
     for nombre, valor, medio in s["items"]:
-        lineas.append(f"{nombre}\n   `${valor:,}` · _{medio}_".replace(",", "."))
+        lineas.append(f"{nombre}: `${valor:,}`".replace(",", "."))
     lineas += [
         "━━━━━━━━━━━━━━━━━━",
         f"💡 {s['tip']}",
@@ -266,20 +278,8 @@ def construir_resumen_ciclo(estado: dict) -> str:
     return "\n".join(lineas)
 
 # ── Reporte de cierre de ciclo ────────────────────────────────────────────────
-# Cruza lo presupuestado (state.json) contra lo real (Google Sheets) del ciclo
-# que termina: por categoría, semana con más gasto y cashback Rappicard (1%).
-
-def _categoria_de_item(nombre: str) -> str:
-    n = nombre.lower()
-    if "domicilio" in n:
-        return "domicilios"
-    if "salida" in n:
-        return "salidas"
-    if "transporte" in n:
-        return "transporte"
-    if "capricho" in n:
-        return "capricho"
-    return "reserva"
+# Cruza lo presupuestado (estado["categorias"]) contra lo real (Google Sheets)
+# del ciclo que termina: por categoría, semana con más gasto y cashback Rappicard (1%).
 
 def construir_reporte_cierre(estado: dict, gastos: list) -> str:
     semanas = estado["semanas"]
@@ -297,11 +297,7 @@ def construir_reporte_cierre(estado: dict, gastos: list) -> str:
                 "medio": str(g.get("medio", "")).strip().lower(),
             })
 
-    presupuestado = {}
-    for s in semanas:
-        for nombre, valor, _ in s["items"]:
-            cat = _categoria_de_item(nombre)
-            presupuestado[cat] = presupuestado.get(cat, 0) + valor
+    presupuestado = {cat: info["presupuesto"] for cat, info in estado.get("categorias", {}).items()}
 
     real = {}
     for g in ciclo:
@@ -341,16 +337,16 @@ DIAS_SEMANA = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", 
 # Filas anteriores a esta fecha son pruebas del desarrollo, no gastos reales
 FECHA_INICIO_DATOS = date(2026, 7, 27)
 
-def _ciclo_de(fecha: date) -> date:
+def _ciclo_de(fecha: date, dia_nomina_config: int = DIA_NOMINA_DEFAULT) -> date:
     """Día de nómina que inicia el ciclo al que pertenece esta fecha."""
-    nomina = dia_nomina(fecha.month, fecha.year)
+    nomina = dia_nomina(fecha.month, fecha.year, dia_nomina_config)
     if fecha >= nomina:
         return nomina
     mes_ant = fecha.month - 1 if fecha.month > 1 else 12
     año_ant = fecha.year if fecha.month > 1 else fecha.year - 1
-    return dia_nomina(mes_ant, año_ant)
+    return dia_nomina(mes_ant, año_ant, dia_nomina_config)
 
-def construir_insights(gastos: list) -> Optional[str]:
+def construir_insights(gastos: list, dia_nomina_config: int = DIA_NOMINA_DEFAULT) -> Optional[str]:
     registros = []
     for g in gastos:
         try:
@@ -362,7 +358,7 @@ def construir_insights(gastos: list) -> Optional[str]:
         monto = parsear_monto(str(g.get("monto", "")))
         if not monto:
             continue
-        ciclo = _ciclo_de(fecha)
+        ciclo = _ciclo_de(fecha, dia_nomina_config)
         registros.append({
             "monto": monto,
             "categoria": str(g.get("categoria", "")).strip().lower(),
@@ -434,56 +430,72 @@ def parsear_monto(texto: str) -> Optional[int]:
 def parsear_dos_montos(texto: str) -> Optional[tuple]:
     """Extrae dos montos de un mensaje tipo 'tarjeta efectivo'.
     Acepta separarlos por espacio, coma, '/' o ' y '. Ej: '400000 120000'."""
-    partes = re.split(r"[,/]| y ", texto.strip(), flags=re.IGNORECASE)
-    if len(partes) != 2:
+    montos = parsear_montos_lista(texto, 2)
+    return tuple(montos) if montos else None
+
+def parsear_montos_lista(texto: str, n: int) -> Optional[list]:
+    """Extrae n montos de un mensaje tipo 'monto1, monto2, ... montoN'.
+    Acepta separarlos por coma, '/', ' y ', salto de línea o espacio."""
+    partes = re.split(r"[,/\n]| y ", texto.strip(), flags=re.IGNORECASE)
+    partes = [p for p in partes if p.strip()]
+    if len(partes) != n:
         partes = texto.split()
-    if len(partes) != 2:
+    if len(partes) != n:
         return None
-    tarjeta, efectivo = parsear_monto(partes[0]), parsear_monto(partes[1])
-    if tarjeta is None or efectivo is None:
+    montos = [parsear_monto(p) for p in partes]
+    if any(m is None for m in montos):
         return None
-    return (tarjeta, efectivo)
+    return montos
 
 # ── Flujo de nómina ───────────────────────────────────────────────────────────
 
-async def procesar_remanente(estado: dict, texto: str, fecha_pago: date) -> bool:
-    """Intenta interpretar `texto` como el remanente del mes y arma el ciclo.
+async def procesar_presupuestos_categoria(estado: dict, texto: str, fecha_pago: date, dia_nomina_config: int) -> bool:
+    """Intenta interpretar `texto` como los presupuestos por categoría del mes
+    (en el orden de CATEGORIAS_LABELS) y arma el ciclo.
     fecha_pago es el día real de nómina (no necesariamente hoy: una respuesta
     puede llegar días después, y las semanas deben arrancar en la fecha de pago).
-    Devuelve True si se configuró el ciclo, False si el monto no era válido."""
-    remanente = parsear_monto(texto)
+    Devuelve True si se configuró el ciclo, False si los montos no eran válidos."""
+    claves = list(CATEGORIAS_LABELS)
+    montos = parsear_montos_lista(texto, len(claves))
 
-    if remanente is None or remanente < 10000:
+    if montos is None or any(m < 0 for m in montos):
+        etiquetas = "\n".join(CATEGORIAS_LABELS.values())
         await enviar_mensaje(
-            "No entendí el monto 😅\n"
-            "Escríbelo como número: ej. *1500000* o *1.500.000*"
+            f"No entendí los montos 😅\n"
+            f"Mándame los {len(claves)} presupuestos en este orden, separados por coma:\n{etiquetas}\n"
+            f"_Ej: 300000, 100000, 500000, 200000, 80000_"
         )
         return False
 
-    # Monto válido: calcular y enviar el plan del ciclo
-    semanas = calcular_semanas(remanente, fecha_pago)
+    presupuestos = dict(zip(claves, montos))
+
+    # Monto válido: calcular y enviar el plan del ciclo.
+    # n_semanas se deriva de los días reales hasta el próximo pago (no siempre
+    # son 4 semanas completas: si el ciclo arranca tarde, ej. porque se saltó
+    # una nómina, puede quedar un ciclo corto de menos de 4 semanas + cierre).
+    mes_sig = fecha_pago.month % 12 + 1
+    año_sig = fecha_pago.year + (1 if fecha_pago.month == 12 else 0)
+    fin_ciclo = dia_nomina(mes_sig, año_sig, dia_nomina_config)
+    n_semanas = max(0, (fin_ciclo - fecha_pago).days // 7)
+    semanas = calcular_semanas_categorias(presupuestos, fecha_pago, dia_nomina_config, n_semanas=n_semanas, fin_ciclo=fin_ciclo)
     for s in semanas:
         s["gastado"] = 0
         s["saldo"] = s["presupuesto"]
-        s["gastado_tarjeta"] = 0
-        s["gastado_efectivo"] = 0
-        s["saldo_tarjeta"] = s["presupuesto_tarjeta"]
-        s["saldo_efectivo"] = s["presupuesto_efectivo"]
     total = sum(s["presupuesto"] for s in semanas)
 
     await enviar_mensaje(
-        f"✅ Remanente registrado: *${remanente:,}*\n"
+        f"✅ Presupuesto de categorías registrado: *${total:,}* en total\n"
         f"Te mando el plan del ciclo ahora 👇".replace(",", ".")
     )
 
     for semana in semanas:
-        await enviar_mensaje(construir_mensaje_semana(semana, total, fecha_pago))
+        await enviar_mensaje(construir_mensaje_semana(semana, total, fecha_pago, dia_nomina_config))
 
     estado["estado"] = "listo"
-    estado["remanente"] = remanente
+    estado["categorias"] = {cat: {"presupuesto": monto, "gastado": 0} for cat, monto in presupuestos.items()}
     estado["semanas"] = semanas
     guardar_estado(estado)
-    print(f"✅ Ciclo configurado con remanente ${remanente:,}")
+    print(f"✅ Ciclo configurado con presupuestos por categoría (total ${total:,})")
     return True
 
 
@@ -522,6 +534,7 @@ async def procesar_ajuste_medios(
         nuevas[0]["anunciada"] = True  # evita que flujo_semanal repita el aviso hoy mismo
     total_restante = tarjeta_real + efectivo_real
     fecha_pago_original = date.fromisoformat(estado["fecha_nomina"])
+    dia_nomina_config = estado.get("dia_nomina_config", DIA_NOMINA_DEFAULT)
 
     estado["semanas"] = estado["semanas"][:idx_inicio] + nuevas
     estado["estado"] = "listo"
@@ -536,7 +549,7 @@ async def procesar_ajuste_medios(
         f"Te mando el nuevo reparto para lo que falta del ciclo 👇".replace(",", ".")
     )
     for semana in nuevas:
-        await enviar_mensaje(construir_mensaje_semana(semana, total_restante, fecha_pago_original))
+        await enviar_mensaje(construir_mensaje_semana(semana, total_restante, fecha_pago_original, dia_nomina_config))
 
     print(f"✅ Ajuste medio-ciclo: tarjeta ${tarjeta_real:,}, efectivo ${efectivo_real:,}")
     return True
@@ -544,6 +557,7 @@ async def procesar_ajuste_medios(
 
 async def flujo_nomina(hoy: date) -> None:
     estado = leer_estado()
+    dia_nomina_config = estado.get("dia_nomina_config", DIA_NOMINA_DEFAULT)
 
     # Si ya configuramos el ciclo para esta nómina, no repetir
     if estado.get("estado") == "listo" and estado.get("fecha_nomina") == str(hoy):
@@ -555,19 +569,20 @@ async def flujo_nomina(hoy: date) -> None:
         try:
             gastos = leer_gastos()
             await enviar_mensaje(construir_reporte_cierre(estado, gastos))
-            insights = construir_insights(gastos)
+            insights = construir_insights(gastos, dia_nomina_config)
             if insights:
                 await enviar_mensaje(insights)
         except Exception as e:
             print(f"⚠️ No se pudo generar el reporte de cierre: {e}")
 
     # Pregunta inicial
+    etiquetas = "\n".join(CATEGORIAS_LABELS.values())
     await enviar_mensaje(
         "💰 *¡Hoy es día de nómina!*\n\n"
-        "¿Cuánto te quedó de remanente este mes?\n"
-        "_(Escríbelo como número, ej: 1500000)_"
+        f"Dame el presupuesto de este mes para cada categoría, en este orden, separados por coma:\n{etiquetas}\n"
+        "_Ej: 300000, 100000, 500000, 200000, 80000_"
     )
-    estado["estado"] = "esperando_remanente"
+    estado["estado"] = "esperando_presupuestos_categoria"
     estado["fecha_nomina"] = str(hoy)
     guardar_estado(estado)
     print("⏳ Esperando respuesta del usuario (máx. 10 min)...")
@@ -591,7 +606,7 @@ async def flujo_nomina(hoy: date) -> None:
                     continue
 
                 texto = msg.get("text", "")
-                if await procesar_remanente(estado, texto, hoy):
+                if await procesar_presupuestos_categoria(estado, texto, hoy, dia_nomina_config):
                     return
 
     print("⏰ Timeout: el usuario no respondió en 10 minutos.")
@@ -607,10 +622,14 @@ def es_borrar_gasto(texto: str) -> bool:
     """Detecta si el mensaje pide borrar el último gasto registrado."""
     return bool(re.search(r"borrar( el)?( último| ultimo)? gasto|elimina(r)?( el)? gasto|cancela(r)?( el)? gasto", texto, re.IGNORECASE))
 
+def es_ajuste_dia_nomina(texto: str) -> bool:
+    """Detecta si el mensaje pide cambiar el día de nómina configurado."""
+    return bool(re.search(r"ajuste en n[oó]mina|cambiar? (el )?d[ií]a de n[oó]mina|cambia mi d[ií]a de pago", texto, re.IGNORECASE))
+
 async def deshacer_ultimo_gasto(estado: dict) -> Optional[str]:
     """Borra la última fila de Sheets y revierte su impacto en la semana donde
-    se registró (gastado/saldo, y su parte de tarjeta o efectivo). Devuelve el
-    mensaje de confirmación, o None si no había ningún gasto que borrar."""
+    se registró (gastado/saldo) y en el acumulado de la categoría del ciclo.
+    Devuelve el mensaje de confirmación, o None si no había ningún gasto que borrar."""
     fila = borrar_ultimo_gasto()
     if fila is None:
         return None
@@ -630,9 +649,9 @@ async def deshacer_ultimo_gasto(estado: dict) -> Optional[str]:
                     s["gastado_tarjeta"] = max(0, s.get("gastado_tarjeta", 0) - monto)
                 elif medio == "efectivo":
                     s["gastado_efectivo"] = max(0, s.get("gastado_efectivo", 0) - monto)
-                s["saldo_tarjeta"] = s.get("presupuesto_tarjeta", 0) - s.get("gastado_tarjeta", 0)
-                s["saldo_efectivo"] = s.get("presupuesto_efectivo", 0) - s.get("gastado_efectivo", 0)
                 break
+        if categoria in estado.get("categorias", {}):
+            estado["categorias"][categoria]["gastado"] = max(0, estado["categorias"][categoria]["gastado"] - monto)
 
     mensaje = f"🗑️ Borrado: `${monto or 0:,}` · {categoria} · {medio}".replace(",", ".")
     if nota:
@@ -667,14 +686,18 @@ async def flujo_gastos(estado: dict) -> None:
     monto_texto = await esperar_respuesta(estado)
     monto = parsear_monto(monto_texto)
 
-    await enviar_mensaje("¿En qué categoría?\n_domicilios / salidas / transporte / capricho_")
-    categoria = await esperar_respuesta(estado)
+    etiquetas = "\n".join(CATEGORIAS_LABELS.values())
+    await enviar_mensaje(f"¿En qué categoría?\n{etiquetas}")
+    categoria = normalizar_categoria(await esperar_respuesta(estado))
 
     await enviar_mensaje("¿Con qué medio?\n_Rappicard / efectivo_")
     medio = await esperar_respuesta(estado)
 
     registrar_gasto(str(hoy_colombia()), monto, categoria, medio)
     await enviar_mensaje(f"✅ Registrado: ${monto:,} en {categoria} con {medio}".replace(",","."))
+
+    if categoria in estado.get("categorias", {}):
+        estado["categorias"][categoria]["gastado"] += monto
 
     semana = semana_en_curso(estado)
     if semana:
@@ -734,24 +757,12 @@ def semana_en_curso(estado:dict):
             return s
 
 # ── Funcion de parseo ───────────────────────────────────────────────────────────
-
-CATEGORIAS = {
-    "domicilios": ["domicilio", "domicilios", "rappi", "delivery", "pedido"],
-    "salidas":    ["salida", "salidas", "cafe", "café", "restaurante", "plan", "planes"],
-    "transporte": ["transporte", "bus", "taxi", "uber", "metro", "trayecto"],
-    "capricho":   ["capricho", "compra", "jean", "ropa", "maquillaje"],
-    "mercado":    ["mercado", "super", "supermercado", "droguería", "drogueria"],
-    "familia":    ["familia", "casa", "apto", "apartamento"],
-    "mascota":    ["mascota", "veterinaria", "veterinario", "perro", "gato"],
-}
-
-MEDIOS = {
-    "rappicard": ["rappicard", "tarjeta", "credito", "crédito"],
-    "efectivo":  ["efectivo", "cash", "billete"],
-}
+# La categoría ya no se infiere aquí por palabras clave: la decide el
+# clasificador con IA (clasificador.clasificar_gasto), y solo si esa llamada
+# falla se usa este parseo como respaldo para monto/medio/nota (ver flujo_escucha).
 
 def parsear_gasto_texto(texto: str) -> tuple:
-    # Nota libre tras un guion (" - "): se separa antes de parsear monto/categoría/medio
+    # Nota libre tras un guion (" - "): se separa antes de parsear monto/medio
     # para que números o palabras dentro de la nota no interfieran (ej. "- cumpleaños el 25").
     partes = re.split(r"\s+-\s+", texto, maxsplit=1)
     cuerpo = partes[0]
@@ -768,13 +779,7 @@ def parsear_gasto_texto(texto: str) -> tuple:
             medio = med
             break
 
-    categoria = None
-    for cat, sinonimos in CATEGORIAS.items():
-        if palabras & set(sinonimos):
-            categoria = cat
-            break
-
-    return (monto, categoria, medio, nota)
+    return (monto, medio, nota)
  
 
 # ── Flujo semanal ─────────────────────────────────────────────────────────────
@@ -835,7 +840,8 @@ async def flujo_semanal() -> None:
         return
 
     anterior = semanas[idx - 1]
-    await enviar_mensaje(construir_mensaje_semana(semana, total, fecha_pago))
+    dia_nomina_config = estado.get("dia_nomina_config", DIA_NOMINA_DEFAULT)
+    await enviar_mensaje(construir_mensaje_semana(semana, total, fecha_pago, dia_nomina_config))
 
     # Si esta semana ya nació de un ajuste manual/automático reciente (ver
     # procesar_ajuste_medios), el remanente que dejó "anterior" ya quedó
@@ -935,12 +941,14 @@ async def flujo_ajuste_manual() -> None:
 async def flujo_escucha() -> None:
     estado = leer_estado()
 
-    # Respuesta de remanente pendiente (ej. flujo_nomina expiró sin recibirla):
-    # sin esto, un "listo" tardío se queda esperando para siempre porque ningún
-    # otro flujo revisa mensajes mientras el estado no sea "listo".
-    if estado.get("estado") == "esperando_remanente":
+    # Respuesta de presupuestos por categoría pendiente (ej. flujo_nomina expiró
+    # sin recibirla): sin esto, un "listo" tardío se queda esperando para
+    # siempre porque ningún otro flujo revisa mensajes mientras el estado no
+    # sea "listo".
+    if estado.get("estado") == "esperando_presupuestos_categoria":
         offset = estado.get("ultimo_update_id", 0) + 1
         fecha_pago = date.fromisoformat(estado["fecha_nomina"])
+        dia_nomina_config = estado.get("dia_nomina_config", DIA_NOMINA_DEFAULT)
         async with httpx.AsyncClient() as client:
             updates = await obtener_updates(client, offset)
             for update in updates:
@@ -951,7 +959,7 @@ async def flujo_escucha() -> None:
                     continue
 
                 texto = msg.get("text", "")
-                if await procesar_remanente(estado, texto, fecha_pago):
+                if await procesar_presupuestos_categoria(estado, texto, fecha_pago, dia_nomina_config):
                     return
         guardar_estado(estado)
         return
@@ -1001,6 +1009,18 @@ async def flujo_escucha() -> None:
 
             texto = msg.get("text", "")
 
+            if es_ajuste_dia_nomina(texto):
+                await enviar_mensaje("¿Cuál es tu día de nómina? (número del 1 al 31)")
+                respuesta = await esperar_respuesta(estado)
+                dia = parsear_monto(respuesta or "")
+                if dia is None or not (1 <= dia <= 31):
+                    await enviar_mensaje("No entendí 😅 Escribe solo el número del día, ej: *17*")
+                else:
+                    estado["dia_nomina_config"] = dia
+                    guardar_estado(estado)
+                    await enviar_mensaje(f"✅ Día de nómina actualizado a *{dia}* de cada mes.")
+                continue
+
             if es_borrar_gasto(texto):
                 resultado = await deshacer_ultimo_gasto(estado)
                 await enviar_mensaje(resultado or "No hay gastos para borrar 🤷")
@@ -1009,16 +1029,40 @@ async def flujo_escucha() -> None:
             if not es_reporte_gasto(texto):
                 continue
 
-            monto, categoria, medio, nota = parsear_gasto_texto(texto)
+            clasificado = clasificar_gasto(texto, list(CATEGORIAS_LABELS))
+            if clasificado:
+                monto = clasificado.get("monto")
+                categoria = normalizar_categoria(clasificado.get("categoria"))
+                medio = clasificado.get("medio")
+                nota = clasificado.get("nota")
+            else:
+                monto = categoria = medio = nota = None
+
+            if monto is None or medio is None:
+                # Respaldo determinista si la IA no respondió o falló
+                monto_r, medio_r, nota_r = parsear_gasto_texto(texto)
+                monto = monto if monto is not None else monto_r
+                medio = medio if medio is not None else medio_r
+                nota = nota if nota is not None else nota_r
+
+            if categoria is None and monto is not None:
+                # Nunca se asigna una categoría a ciegas: se le pregunta a la usuaria
+                etiquetas = "\n".join(CATEGORIAS_LABELS.values())
+                await enviar_mensaje(f"¿En qué categoría va ese gasto de ${monto:,}?\n{etiquetas}".replace(",", "."))
+                categoria = normalizar_categoria(await esperar_respuesta(estado))
+
             if not monto or not categoria or not medio:
                 await enviar_mensaje(
                     f"No entendí ese gasto 😅\n"
-                    f"Formato: _hoy gasté 25000 salidas rappicard_\n"
-                    f"Con nota (opcional): _hoy gasté 25000 salidas rappicard - cumpleaños de Ana_"
+                    f"Formato: _hoy gasté 25000 en transporte con rappicard_\n"
+                    f"Con nota (opcional): _hoy gasté 25000 transporte rappicard - cumpleaños de Ana_"
                 )
                 continue
 
             registrar_gasto(str(hoy_colombia()), monto, categoria, medio, nota or "")
+
+            if categoria in estado.get("categorias", {}):
+                estado["categorias"][categoria]["gastado"] += monto
 
             semana = semana_en_curso(estado)
             total_rappicard_ciclo = None
@@ -1028,13 +1072,9 @@ async def flujo_escucha() -> None:
 
                 if medio == "rappicard":
                     semana["gastado_tarjeta"] = semana.get("gastado_tarjeta", 0) + monto
+                    total_rappicard_ciclo = sum(s.get("gastado_tarjeta", 0) for s in estado.get("semanas", []))
                 elif medio == "efectivo":
                     semana["gastado_efectivo"] = semana.get("gastado_efectivo", 0) + monto
-                semana["saldo_tarjeta"] = semana.get("presupuesto_tarjeta", 0) - semana.get("gastado_tarjeta", 0)
-                semana["saldo_efectivo"] = semana.get("presupuesto_efectivo", 0) - semana.get("gastado_efectivo", 0)
-
-                if medio == "rappicard":
-                    total_rappicard_ciclo = sum(s.get("gastado_tarjeta", 0) for s in estado.get("semanas", []))
 
             gastos_registrados.append((monto, categoria, medio, nota, total_rappicard_ciclo))
 
@@ -1046,9 +1086,14 @@ async def flujo_escucha() -> None:
 
     lineas = ["📋 *Gastos registrados:*"]
     for monto, categoria, medio, nota, total_rappicard_ciclo in gastos_registrados:
-        linea = f"   · `${monto:,}` · {categoria} · {medio}".replace(",", ".")
+        etiqueta_cat = CATEGORIAS_LABELS.get(categoria, categoria)
+        linea = f"   · `${monto:,}` · {etiqueta_cat} · {medio}".replace(",", ".")
         if nota:
             linea += f" · _{nota}_"
+        info_cat = estado.get("categorias", {}).get(categoria)
+        if info_cat:
+            saldo_cat = info_cat["presupuesto"] - info_cat["gastado"]
+            linea += f"\n      Te quedan *${saldo_cat:,}* de *${info_cat['presupuesto']:,}* en {etiqueta_cat} este ciclo".replace(",", ".")
         lineas.append(linea)
         if total_rappicard_ciclo is not None:
             lineas.append(
@@ -1057,12 +1102,7 @@ async def flujo_escucha() -> None:
 
     semana = semana_en_curso(estado)
     if semana:
-        reserva = semana["presupuesto"] - semana.get("presupuesto_tarjeta", 0) - semana.get("presupuesto_efectivo", 0)
         lineas.append(f"\n📊 Saldo restante esta semana: *${semana['saldo']:,}*".replace(",", "."))
-        lineas.append(
-            f"💳 Tarjeta: ${semana.get('saldo_tarjeta', 0):,} · 💵 Efectivo: ${semana.get('saldo_efectivo', 0):,} · 🐷 Reserva: ${reserva:,}"
-            .replace(",", ".")
-        )
         if semana["saldo"] < 0:
             await enviar_mensaje("\n".join(lineas))
             await flujo_buffer(estado, semana)
@@ -1095,8 +1135,10 @@ async def main():
     hoy = hoy_colombia()
 
     if "--nomina" in sys.argv:
-        nomina = dia_nomina(hoy.month, hoy.year)
-        if hoy != nomina:
+        estado = leer_estado()
+        dia_nomina_config = estado.get("dia_nomina_config", DIA_NOMINA_DEFAULT)
+        nomina = dia_nomina(hoy.month, hoy.year, dia_nomina_config)
+        if hoy != nomina and "--forzar" not in sys.argv:
             print(f"⏭️  Hoy ({hoy}) no es día de nómina ({nomina}). Sin acción.")
             return
         await flujo_nomina(hoy)
@@ -1117,7 +1159,9 @@ async def main():
             print(f"❌ Error: {resultado}")
 
     elif "--insights" in sys.argv:
-        mensaje = construir_insights(leer_gastos())
+        estado = leer_estado()
+        dia_nomina_config = estado.get("dia_nomina_config", DIA_NOMINA_DEFAULT)
+        mensaje = construir_insights(leer_gastos(), dia_nomina_config)
         if mensaje:
             await enviar_mensaje(mensaje)
             print("✅ Insights enviados")

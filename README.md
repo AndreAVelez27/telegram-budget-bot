@@ -6,9 +6,9 @@ Built with **zero servers** — the whole bot runs on GitHub Actions cron schedu
 
 ## ✨ Features
 
-- **Payday detection** — Automatically finds the last Colombian business day on or before the 27th of each month, accounting for weekends and moveable holidays (via the `holidays` library).
-- **Conversational cycle setup** — On payday, the bot asks how much money you have left, then splits it into 4 weekly budgets + a closing period, each with category allocations (delivery, outings, transport, savings).
-- **Natural-language expense tracking** — Send *"hoy gasté 27.300 salida rappicard"* and the bot parses amount, category, and payment method using whole-word synonym matching ("rappi", "taxi", "café"… all map to their categories).
+- **Configurable payday** — The payday is a literal day of the month (e.g. the 17th), set once via a chat command ("ajuste en nómina") and stored in Firestore — no weekend/holiday adjustment.
+- **Conversational cycle setup** — On payday, the bot asks for a budget per category (Rappicard, Transporte, Mercado, Gastos personales, Mascota), then splits each category into 4 weekly budgets + a closing period using the same relative weights.
+- **AI-powered expense tracking** — Send *"Hoy gasté 10.000 carro - cumple juanita"* and Claude (Anthropic API) extracts the amount, category, payment method and note from free-form Spanish text. A deterministic regex parser is the fallback if the API call fails or no key is configured — the bot asks for the category explicitly rather than guessing.
 - **Google Sheets ledger** — Every expense is appended to a spreadsheet via a service account; cashback is computed there as a formula (the bot records facts, not derivations).
 - **Weekly budget messages** — A daily cron checks whether today starts a new budget week; if so, it sends that week's plan and asks whether you had money left over from the previous week — any surplus rolls into the new week's budget.
 - **Buffer flow** — If you overspend a week, the bot offers to borrow a fixed buffer from next week's budget and adjusts both weeks.
@@ -21,22 +21,23 @@ Built with **zero servers** — the whole bot runs on GitHub Actions cron schedu
 ```mermaid
 flowchart LR
     subgraph GitHub Actions
-        A[Cron every ~5 min<br/>--escucha] 
-        B[Cron daily 8am<br/>--semanal]
-        C[Cron days 24-27<br/>--nomina]
+        A[Cron every ~5 min<br/>--escucha]
+        B[Cron daily 8am<br/>--semanal / --nomina<br/>Python decides which]
     end
-    A & B & C --> D[budget_bot.py]
+    A & B --> D[budget_bot.py]
     D <-->|long polling / sendMessage| E[Telegram API]
     D -->|append & read rows| F[Google Sheets<br/>service account]
-    D <-->|conversational state| G[state.json<br/>committed back to repo]
+    D <-->|conversational state| G[Firestore<br/>estado_store.py]
+    D -->|classify free-text expenses| H[Claude API<br/>clasificador.py]
 ```
 
 Key design decisions:
 
-- **Stateless runners, persistent state** — GitHub Actions gives you a fresh VM every run. Conversational state lives in `state.json`, which each run commits back to the repo using the built-in `GITHUB_TOKEN` (`[skip ci]` prevents workflow loops).
-- **Broad crons, smart scripts** — Crons fire on wide windows (daily, days 24–27); Python decides internally whether today is actually payday or the start of a budget week. The bot never needs manual reconfiguration between cycles.
-- **Facts in Sheets, plans in state** — Google Sheets is the source of truth for expenses; `state.json` holds the current cycle's budgets and balances. Historical analysis reconstructs past cycles by recomputing each month's payday.
-- **Separation of concerns** — `budget_bot.py` handles Telegram and budget logic; `sheets.py` isolates all Google Sheets access.
+- **Stateless runners, persistent state** — GitHub Actions gives you a fresh VM every run. Conversational state lives in Firestore (`estado_store.py`), not in a committed file — this also lets the same state be shared with a future Cloud Run deployment without git race conditions.
+- **Broad crons, smart scripts** — Both payday and weekly checks run off the same daily cron; Python decides internally whether today is actually payday or the start of a budget week. The bot never needs manual reconfiguration between cycles.
+- **Facts in Sheets, plans in state** — Google Sheets is the source of truth for expenses; Firestore holds the current cycle's category budgets and balances. Historical analysis reconstructs past cycles by recomputing each month's payday from the configured day.
+- **AI with a deterministic fallback** — Category classification never fails silently: if Claude is unavailable or unsure, the bot asks the user directly instead of guessing.
+- **Separation of concerns** — `budget_bot.py` handles Telegram and budget logic, `sheets.py` isolates Google Sheets access, `estado_store.py` isolates Firestore access, `clasificador.py` isolates the Claude integration.
 
 ## 🛠️ Tech Stack
 
@@ -44,9 +45,10 @@ Key design decisions:
 |---|---|
 | Language | Python 3.11 (`asyncio`, `httpx`) |
 | Messaging | Telegram Bot API (long polling) |
-| Storage | Google Sheets (`gspread` + service account) |
+| Storage | Google Sheets (`gspread` + service account) — expense ledger |
+| State | Firestore (`google-cloud-firestore`) — conversational/cycle state |
+| Expense classification | Claude API (`anthropic`), with regex fallback |
 | Scheduling & compute | GitHub Actions (cron + `workflow_dispatch`) |
-| Holidays | `holidays` (Colombian calendar) |
 
 ## 🚀 Setup
 
@@ -69,7 +71,15 @@ Talk to [@BotFather](https://t.me/botfather) to create a bot and get its token. 
 3. Create a spreadsheet with a `gastos` tab (columns: `fecha`, `monto`, `categoria`, `medio`) and share it with the service account's email.
 4. Base64-encode the key: `base64 -i credentials.json`
 
-### 4. Configure environment
+### 4. Set up Firestore
+
+Enable the **Firestore API** on the same (or another) Google Cloud project, create a database, and grant the service account from step 3 the `roles/datastore.user` role — it's reused for both Sheets and Firestore access via `GOOGLE_CREDENTIALS_B64`.
+
+### 5. Get an Anthropic API key
+
+Create a key at [console.anthropic.com](https://console.anthropic.com) for AI-powered expense classification. Without it, the bot falls back to asking for the category explicitly instead of inferring it.
+
+### 6. Configure environment
 
 For local testing, create a `.env` file:
 
@@ -78,25 +88,29 @@ TELEGRAM_TOKEN=your_botfather_token
 TELEGRAM_CHAT_ID=your_chat_id
 GOOGLE_CREDENTIALS_B64=base64_encoded_service_account_json
 GOOGLE_SHEETS_ID=your_spreadsheet_id
+ANTHROPIC_API_KEY=your_anthropic_api_key
 ```
 
-For production, add the same four values as **GitHub Actions secrets** (Settings → Secrets and variables → Actions).
+For production, add the same values as **GitHub Actions secrets** (Settings → Secrets and variables → Actions).
 
-### 5. Run
+### 7. Run
 
 ```bash
-python3 budget_bot.py --nomina    # payday flow (asks for your remaining balance)
+python3 budget_bot.py --nomina    # payday flow (asks for category budgets; only acts on the configured payday)
 python3 budget_bot.py --semanal   # weekly budget (only acts if a week starts today)
 python3 budget_bot.py --escucha   # process pending expense messages
 python3 budget_bot.py --resumen   # full cycle summary
 python3 budget_bot.py --insights  # spending patterns (needs 2+ cycles of data)
+python3 budget_bot.py --ajuste    # manual mid-cycle tarjeta/efectivo adjustment
 ```
+
+To change the configured payday, message the bot "ajuste en nómina" and reply with the day of the month (1–31).
 
 The workflow in [.github/workflows/budget.yml](.github/workflows/budget.yml) runs these automatically and can also be triggered manually from the Actions tab with a mode selector.
 
 ## 📱 The bot in action
 
-**Payday conversation** — the bot asks for your remaining balance and builds the cycle:
+**Payday conversation** — the bot asks for a budget per category and builds the cycle:
 
 ![Payday conversation](docs/screenshots/payday-flow.png)
 
@@ -111,8 +125,10 @@ The workflow in [.github/workflows/budget.yml](.github/workflows/budget.yml) run
 
 ## ⚠️ Known limitations
 
-- GitHub Actions cron schedules are **best-effort**: during peak hours, runs can be delayed 30–90 minutes. Expense confirmation latency depends on it. A webhook-based deployment (planned) would make responses instant.
+- GitHub Actions cron schedules are **best-effort**: during peak hours, runs can be delayed 30–90 minutes. Expense confirmation latency depends on it. A Cloud Run deployment (planned) would make responses instant.
 - Single-user by design (one chat ID). Multi-user support is on the roadmap along with a Streamlit dashboard.
+- The mid-cycle tarjeta/efectivo adjustment (Semana 3 checkpoint and `--ajuste`) still redistributes real card/cash balances across the remaining weeks as a flat pool, not per category — after that adjustment, the remaining weeks temporarily show tarjeta/efectivo instead of the category breakdown.
+- Gmail/Outlook ingestion (auto-registering expenses from bank purchase-alert emails) is a planned follow-up, not yet implemented.
 
 ## 📄 License
 

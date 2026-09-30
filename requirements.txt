@@ -1,7 +1,7 @@
 httpx>=0.28.1
 python-dotenv>=1.2.1
-holidays>=0.57
 gspread>=6.1.0
 google-auth>=2.0.0
 google-cloud-firestore>=2.16.0
 tzdata>=2024.1
+anthropic>=0.69.0

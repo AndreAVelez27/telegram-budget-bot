@@ -28,8 +28,8 @@ HERRAMIENTA = {
         "type": "object",
         "properties": {
             "monto": {"type": "integer", "description": "Monto del gasto en pesos colombianos, sin puntos ni símbolos."},
-            "categoria": {"type": "string", "description": "Una de las categorías dadas, la que mejor describa el gasto."},
-            "medio": {"type": "string", "enum": ["rappicard", "efectivo"], "description": "Medio de pago, si se menciona o se puede inferir."},
+            "categoria": {"type": "string", "description": "Si el gasto corresponde a uno de los bolsillos dados, el nombre EXACTO de ese bolsillo. Si no, una etiqueta corta en minúsculas que describa el gasto (ej. domicilios, salidas, ropa)."},
+            "medio": {"type": "string", "enum": ["rappicard", "efectivo", "otro"], "description": "Medio de pago SOLO si el mensaje lo menciona. Omítelo si no se dice."},
             "nota": {"type": "string", "description": "Nota libre adicional (ej. para quién o por qué), si la hay."},
         },
         "required": ["monto", "categoria"],
@@ -37,16 +37,19 @@ HERRAMIENTA = {
 }
 
 
-def clasificar_gasto(texto: str, categorias: list) -> Optional[dict]:
+def clasificar_gasto(texto: str, bolsillos: list) -> Optional[dict]:
     """Usa Claude para extraer monto/categoría/medio/nota de un mensaje de
-    gasto en texto libre (ej. 'Hoy gasté 10.000 carro - cumple juanita').
-    `categorias` es la lista de claves válidas (CATEGORIAS_LABELS.keys()).
-    Devuelve None si no hay API key configurada, la llamada falla, o la
-    categoría devuelta no está en `categorias` — el llamador hace fallback."""
+    gasto en texto libre (ej. 'Hoy gasté 10.000 en domicilios con rappicard').
+    `bolsillos` son los nombres de los bolsillos del usuario: si el gasto
+    corresponde a uno, `categoria` devuelve ese nombre exacto; si no, una
+    etiqueta libre (la categoría ya no es una lista cerrada, solo sirve para
+    reportes). Devuelve None si no hay API key, la llamada falla o no hay
+    monto — el llamador hace fallback a parseo determinista."""
     cliente = _obtener_cliente()
     if cliente is None:
         return None
 
+    lista = ", ".join(bolsillos) if bolsillos else "(ninguno)"
     try:
         respuesta = cliente.messages.create(
             model=MODELO,
@@ -56,10 +59,10 @@ def clasificar_gasto(texto: str, categorias: list) -> Optional[dict]:
             messages=[{
                 "role": "user",
                 "content": (
-                    f"Categorías válidas: {', '.join(categorias)}.\n"
+                    f"Bolsillos del usuario: {lista}.\n"
                     f"Mensaje del usuario: {texto!r}\n"
                     "Extrae el gasto con la herramienta registrar_gasto. "
-                    "La categoría debe ser exactamente una de las categorías válidas."
+                    "No inventes el medio de pago: si el mensaje no lo menciona, omítelo."
                 ),
             }],
         )
@@ -70,7 +73,7 @@ def clasificar_gasto(texto: str, categorias: list) -> Optional[dict]:
     for bloque in respuesta.content:
         if bloque.type == "tool_use" and bloque.name == "registrar_gasto":
             datos = dict(bloque.input)
-            if datos.get("categoria") not in categorias:
+            if not datos.get("monto"):
                 return None
             return datos
 

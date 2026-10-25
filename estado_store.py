@@ -50,3 +50,27 @@ def leer_estado() -> dict:
 
 def guardar_estado(estado: dict) -> None:
     _cliente().collection(COLECCION).document(DOCUMENTO).set(_codificar_items(estado))
+
+
+# ── Movimientos de bolsillos ──────────────────────────────────────────────────
+# Historial de ingresos/retiros de cada bolsillo (como "Últimos movimientos" en
+# la app de bolsillos). Vive en una subcolección aparte, no dentro del documento
+# de estado: crece sin límite y el documento de Firestore tiene tope de 1 MB.
+
+def registrar_movimiento(fecha: str, bolsillo: str, nombre: str, tipo: str, monto: int, nota: str = "") -> None:
+    """tipo: 'ingreso' | 'retiro'. `bolsillo` es el slug; `nombre` el nombre visible."""
+    (_cliente().collection(COLECCION).document(DOCUMENTO).collection("movimientos").add({
+        "fecha": fecha,
+        "bolsillo": bolsillo,
+        "nombre": nombre,
+        "tipo": tipo,
+        "monto": monto,
+        "nota": nota,
+        "creado": firestore.SERVER_TIMESTAMP,
+    }))
+
+
+def leer_movimientos(limite: int = 20) -> list:
+    consulta = (_cliente().collection(COLECCION).document(DOCUMENTO).collection("movimientos")
+                .order_by("creado", direction=firestore.Query.DESCENDING).limit(limite))
+    return [d.to_dict() for d in consulta.stream()]

@@ -7,13 +7,13 @@ Built with **zero servers** — the whole bot runs on GitHub Actions cron schedu
 ## ✨ Features
 
 - **Configurable payday** — The payday is a literal day of the month (e.g. the 17th), set once via a chat command ("ajuste en nómina") and stored in Firestore — no weekend/holiday adjustment.
-- **Conversational cycle setup** — On payday, the bot asks for a budget per category (Rappicard, Transporte, Mercado, Gastos personales, Mascota), then splits each category into 4 weekly budgets + a closing period using the same relative weights.
-- **AI-powered expense tracking** — Send *"Hoy gasté 10.000 carro - cumple juanita"* and Claude (Anthropic API) extracts the amount, category, payment method and note from free-form Spanish text. A deterministic regex parser is the fallback if the API call fails or no key is configured — the bot asks for the category explicitly rather than guessing.
+- **Conversational cycle setup** — On payday, the bot asks for the Rappicard limit and the personal-spending budget — the only two amounts that are budgeted weekly — plus the balances of your digital *bolsillos* (pockets: groceries, transport, pet…). Rappicard + personal spending is split into 4 weekly budgets + a closing period; pockets are tracked visually and never budgeted. Create more with *"nuevo bolsillo Viajes 500000"*, move money with *"ingreso a mercado 50000"* / *"retiro de mascota 20000"*.
+- **AI-powered expense tracking** — Send *"Hoy gasté 10.000 carro - cumple juanita"* and Claude (Anthropic API) extracts the amount, category label, payment method and note from free-form Spanish text. A deterministic regex parser is the fallback if the API call fails or no key is configured. The bot never asks follow-up questions: an expense in a pocket's category only debits that pocket; otherwise the payment method decides — Rappicard debits the card limit, anything else (or no method) debits personal spending.
 - **Google Sheets ledger** — Every expense is appended to a spreadsheet via a service account; cashback is computed there as a formula (the bot records facts, not derivations).
 - **Weekly budget messages** — A daily cron checks whether today starts a new budget week; if so, it sends that week's plan and asks whether you had money left over from the previous week — any surplus rolls into the new week's budget.
 - **Buffer flow** — If you overspend a week, the bot offers to borrow a fixed buffer from next week's budget and adjusts both weeks.
 - **Proactive 70% alert** — The moment your spending crosses 70% of the weekly budget, the bot warns you — once per week, no nagging.
-- **Cycle closing report** — On payday, before starting the new cycle, you get a budgeted-vs-actual breakdown per category, the most expensive week, and accumulated Rappicard cashback.
+- **Cycle closing report** — On payday, before starting the new cycle, you get a budgeted-vs-actual breakdown for Rappicard and personal spending, pocket balances, the most expensive week, and accumulated Rappicard cashback.
 - **Pattern detection** — With 2+ complete cycles of history, the bot analyzes your ledger: dominant category, most expensive week of the cycle, highest-spending weekday, and average spend per cycle.
 
 ## 🧱 Architecture
@@ -35,8 +35,8 @@ Key design decisions:
 
 - **Stateless runners, persistent state** — GitHub Actions gives you a fresh VM every run. Conversational state lives in Firestore (`estado_store.py`), not in a committed file — this also lets the same state be shared with a future Cloud Run deployment without git race conditions.
 - **Broad crons, smart scripts** — Both payday and weekly checks run off the same daily cron; Python decides internally whether today is actually payday or the start of a budget week. The bot never needs manual reconfiguration between cycles.
-- **Facts in Sheets, plans in state** — Google Sheets is the source of truth for expenses; Firestore holds the current cycle's category budgets and balances. Historical analysis reconstructs past cycles by recomputing each month's payday from the configured day.
-- **AI with a deterministic fallback** — Category classification never fails silently: if Claude is unavailable or unsure, the bot asks the user directly instead of guessing.
+- **Facts in Sheets, plans in state** — Google Sheets is the source of truth for expenses; Firestore holds the current cycle's budgets, pocket balances and pocket movements. Historical analysis reconstructs past cycles by recomputing each month's payday from the configured day.
+- **AI with a deterministic fallback** — Expense interpretation never blocks on the user: if Claude is unavailable or unsure, the regex parser takes over, and an unknown category simply becomes "otros" (categories are only report labels).
 - **Separation of concerns** — `budget_bot.py` handles Telegram and budget logic, `sheets.py` isolates Google Sheets access, `estado_store.py` isolates Firestore access, `clasificador.py` isolates the Claude integration.
 
 ## 🛠️ Tech Stack
@@ -77,7 +77,7 @@ Enable the **Firestore API** on the same (or another) Google Cloud project, crea
 
 ### 5. Get an Anthropic API key
 
-Create a key at [console.anthropic.com](https://console.anthropic.com) for AI-powered expense classification. Without it, the bot falls back to asking for the category explicitly instead of inferring it.
+Create a key at [console.anthropic.com](https://console.anthropic.com) for AI-powered expense classification. Without it, the bot falls back to a regex parser (unknown categories become "otros").
 
 ### 6. Configure environment
 
@@ -96,12 +96,12 @@ For production, add the same values as **GitHub Actions secrets** (Settings → 
 ### 7. Run
 
 ```bash
-python3 budget_bot.py --nomina    # payday flow (asks for category budgets; only acts on the configured payday)
+python3 budget_bot.py --nomina    # payday flow (asks for Rappicard, personal spending and pocket balances; only acts on the configured payday)
 python3 budget_bot.py --semanal   # weekly budget (only acts if a week starts today)
 python3 budget_bot.py --escucha   # process pending expense messages
 python3 budget_bot.py --resumen   # full cycle summary
 python3 budget_bot.py --insights  # spending patterns (needs 2+ cycles of data)
-python3 budget_bot.py --ajuste    # manual mid-cycle tarjeta/efectivo adjustment
+python3 budget_bot.py --ajuste    # manual mid-cycle adjustment (real Rappicard + personal spending balances)
 ```
 
 To change the configured payday, message the bot "ajuste en nómina" and reply with the day of the month (1–31).
@@ -110,11 +110,11 @@ The workflow in [.github/workflows/budget.yml](.github/workflows/budget.yml) run
 
 ## 📱 The bot in action
 
-**Payday conversation** — the bot asks for a budget per category and builds the cycle:
+**Payday conversation** — the bot asks for Rappicard, personal spending and pocket balances, and builds the cycle _(screenshots pending refresh for v2)_:
 
 ![Payday conversation](docs/screenshots/payday-flow.png)
 
-**Weekly budget messages** — one per week, with category allocations:
+**Weekly budget messages** — one per week, with the Rappicard / personal-spending split:
 
 ![Weekly budget — week 1](docs/screenshots/weekly-budget-1.png)
 ![Weekly budget — week 2](docs/screenshots/weekly-budget-2.png)
@@ -127,7 +127,6 @@ The workflow in [.github/workflows/budget.yml](.github/workflows/budget.yml) run
 
 - GitHub Actions cron schedules are **best-effort**: during peak hours, runs can be delayed 30–90 minutes. Expense confirmation latency depends on it. A Cloud Run deployment (planned) would make responses instant.
 - Single-user by design (one chat ID). Multi-user support is on the roadmap along with a Streamlit dashboard.
-- The mid-cycle tarjeta/efectivo adjustment (Semana 3 checkpoint and `--ajuste`) still redistributes real card/cash balances across the remaining weeks as a flat pool, not per category — after that adjustment, the remaining weeks temporarily show tarjeta/efectivo instead of the category breakdown.
 - Gmail/Outlook ingestion (auto-registering expenses from bank purchase-alert emails) is a planned follow-up, not yet implemented.
 
 ## 📄 License

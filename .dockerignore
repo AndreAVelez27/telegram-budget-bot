@@ -1,0 +1,9 @@
+.git
+.github
+.vscode
+.env
+docs
+state.json
+seed_estado.py
+__pycache__
+*.pyc

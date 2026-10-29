@@ -2,7 +2,7 @@
 
 A conversational Telegram bot that guides you through your entire monthly pay cycle: it detects your payday, builds a weekly budget plan, listens for expense reports in natural language, records everything in Google Sheets, and proactively warns you before you overspend.
 
-Built with **zero servers** — the whole bot runs on GitHub Actions cron schedules.
+Serverless and instant: a **Cloud Run webhook** answers every message in real time, while **GitHub Actions** crons trigger the scheduled flows (payday, weekly budget).
 
 ## ✨ Features
 
@@ -20,12 +20,14 @@ Built with **zero servers** — the whole bot runs on GitHub Actions cron schedu
 
 ```mermaid
 flowchart LR
+    subgraph Cloud Run
+        A[FastAPI webhook<br/>webhook.py]
+    end
     subgraph GitHub Actions
-        A[Cron every ~5 min<br/>--escucha]
         B[Cron daily 8am<br/>--semanal / --nomina<br/>Python decides which]
     end
     A & B --> D[budget_bot.py]
-    D <-->|long polling / sendMessage| E[Telegram API]
+    D <-->|webhook / sendMessage| E[Telegram API]
     D -->|append & read rows| F[Google Sheets<br/>service account]
     D <-->|conversational state| G[Firestore<br/>estado_store.py]
     D -->|classify free-text expenses| H[Claude API<br/>clasificador.py]
@@ -33,22 +35,25 @@ flowchart LR
 
 Key design decisions:
 
-- **Stateless runners, persistent state** — GitHub Actions gives you a fresh VM every run. Conversational state lives in Firestore (`estado_store.py`), not in a committed file — this also lets the same state be shared with a future Cloud Run deployment without git race conditions.
+- **Stateless runners, persistent state** — Neither GitHub Actions nor Cloud Run keeps memory between runs. Conversational state lives in Firestore (`estado_store.py`), shared by both without git race conditions.
+- **One dispatcher, no blocking waits** — Every user message goes through `procesar_mensaje`. When the bot needs an answer (leftover money, buffer, payday), it sends the question, stores it as a pending question in Firestore and returns; the reply arrives later as a normal webhook call, so there are no timeouts, and expenses keep working in the meantime.
+- **Webhook security** — The Cloud Run service is public (Telegram has no OAuth), so every request must carry Telegram's secret token (checked in constant time) and come from the configured chat; Telegram retries are deduplicated by `update_id`.
 - **Broad crons, smart scripts** — Both payday and weekly checks run off the same daily cron; Python decides internally whether today is actually payday or the start of a budget week. The bot never needs manual reconfiguration between cycles.
 - **Facts in Sheets, plans in state** — Google Sheets is the source of truth for expenses; Firestore holds the current cycle's budgets, pocket balances and pocket movements. Historical analysis reconstructs past cycles by recomputing each month's payday from the configured day.
 - **AI with a deterministic fallback** — Expense interpretation never blocks on the user: if Claude is unavailable or unsure, the regex parser takes over, and an unknown category simply becomes "otros" (categories are only report labels).
-- **Separation of concerns** — `budget_bot.py` handles Telegram and budget logic, `sheets.py` isolates Google Sheets access, `estado_store.py` isolates Firestore access, `clasificador.py` isolates the Claude integration.
+- **Separation of concerns** — `budget_bot.py` handles Telegram and budget logic, `webhook.py` is the thin Cloud Run entry point, `sheets.py` isolates Google Sheets access, `estado_store.py` isolates Firestore access, `clasificador.py` isolates the Claude integration.
 
 ## 🛠️ Tech Stack
 
 | Layer | Tool |
 |---|---|
 | Language | Python 3.11 (`asyncio`, `httpx`) |
-| Messaging | Telegram Bot API (long polling) |
+| Messaging | Telegram Bot API (webhook) |
 | Storage | Google Sheets (`gspread` + service account) — expense ledger |
 | State | Firestore (`google-cloud-firestore`) — conversational/cycle state |
 | Expense classification | Claude API (`anthropic`), with regex fallback |
-| Scheduling & compute | GitHub Actions (cron + `workflow_dispatch`) |
+| Real-time receiver | Google Cloud Run (FastAPI + Secret Manager) — see [docs/deploy-cloud-run.md](docs/deploy-cloud-run.md) |
+| Scheduling | GitHub Actions (daily cron + `workflow_dispatch`) |
 
 ## 🚀 Setup
 
@@ -98,7 +103,7 @@ For production, add the same values as **GitHub Actions secrets** (Settings → 
 ```bash
 python3 budget_bot.py --nomina    # payday flow (asks for Rappicard, personal spending and pocket balances; only acts on the configured payday)
 python3 budget_bot.py --semanal   # weekly budget (only acts if a week starts today)
-python3 budget_bot.py --escucha   # process pending expense messages
+python3 budget_bot.py --escucha   # manual polling fallback (only works while no webhook is set)
 python3 budget_bot.py --resumen   # full cycle summary
 python3 budget_bot.py --insights  # spending patterns (needs 2+ cycles of data)
 python3 budget_bot.py --ajuste    # manual mid-cycle adjustment (real Rappicard + personal spending balances)
@@ -125,7 +130,7 @@ The workflow in [.github/workflows/budget.yml](.github/workflows/budget.yml) run
 
 ## ⚠️ Known limitations
 
-- GitHub Actions cron schedules are **best-effort**: during peak hours, runs can be delayed 30–90 minutes. Expense confirmation latency depends on it. A Cloud Run deployment (planned) would make responses instant.
+- Scheduled flows (payday, weekly budget) still run on GitHub Actions cron, which is best-effort and can start late during peak hours. Expense messages are not affected: they are handled instantly by the Cloud Run webhook.
 - Single-user by design (one chat ID). Multi-user support is on the roadmap along with a Streamlit dashboard.
 - Gmail/Outlook ingestion (auto-registering expenses from bank purchase-alert emails) is a planned follow-up, not yet implemented.
 

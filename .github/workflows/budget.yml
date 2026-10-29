@@ -2,8 +2,6 @@ name: Budget Bot
 
 on:
   schedule:
-    # Escucha de gastos cada 5 min (minutos impares: menos congestión en GitHub)
-    - cron: "3,8,13,18,23,28,33,38,43,48,53 * * * *"
     # Diario 8am Colombia: Python decide si hoy empieza una semana del ciclo
     # y/o si hoy es el día de nómina configurado (dia_nomina_config en Firestore)
     - cron: "0 13 * * *"
@@ -40,16 +38,6 @@ jobs:
 
       - name: Instalar dependencias
         run: pip install -r requirements.txt
-
-      - name: Escucha de gastos (cada 5 min)
-        if: github.event_name == 'schedule' && startsWith(github.event.schedule, '3,8')
-        env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          GOOGLE_CREDENTIALS_B64: ${{ secrets.GOOGLE_CREDENTIALS_B64 }}
-          GOOGLE_SHEETS_ID: ${{ secrets.GOOGLE_SHEETS_ID }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: python3 budget_bot.py --escucha
 
       - name: Flujo de nómina (diario, Python decide)
         if: github.event_name == 'schedule' && startsWith(github.event.schedule, '0 13 * *')
